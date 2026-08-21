@@ -1,0 +1,34 @@
+# tokens-dsh-web-search - web search providers for DSH
+# Registers the free-search plugin into ctx.web + a settings bridge
+# (/api/tokens-dsh-web-search-settings) that serves the "free-search" namespace.
+# The engine (ddg / ddg-lite / bing) is chosen from the web Settings page
+# (Settings > Plugins > Web UI plugins > Free Search) or settings.yaml:
+#   free-search:
+#     provider: bing
+#     region: cn-zh        # DuckDuckGo region
+#     bingMarket: zh-CN    # Bing market
+# Failed/empty engines automatically fall back to the next free engine.
+# web.searchProvider must point at this plugin's provider id (ddg).
+- insert:
+    - id: web-search-free
+      name: tokens-dsh-web-search
+      config:
+        provider: bing
+        bingMarket: zh-CN
+# 自动接管默认搜索：让 harness 的 web_search 直接用本插件的 provider（内部含全部引擎）
+- id: web
+  config:
+    searchProvider: ddg
+
+# 禁用原生 DeepSeek 搜索 provider；稳定的 web_search 工具仍由 tool-web 提供。
+# 原生 web-search-deepseek 设置命名空间会随 provider 一同消失，避免重复 UI。
+- id: web-search-deepseek
+  disabled: true
+
+# Desktop bundle 默认关闭 tool-web；重新启用稳定的 web_search 工具，
+# 但继续关闭 web_fetch，避免改变现有的抓取安全边界。
+- id: tool-web
+  disabled: false
+  config:
+    fetch: false
+    searchTimeoutMs: 60000
