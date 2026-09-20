@@ -1,0 +1,289 @@
+﻿"用例编号","所属模块","用例标题","前置条件","测试数据","操作步骤","预期结果","优先级","自动化状态","对应测试"
+"CFG-001","安装与装配","从本地目录安装插件","Windows 10/11；已安装兼容版本 DSH Desktop；使用隔离测试 profile；插件目录可读","file:C:\path\to\tokens_DshWebSearch_code","1. 在插件目录外执行 dsh plugin --profile desktop add file:C:\path\to\tokens_DshWebSearch_code
+2. 重启 DSH Desktop
+3. 打开会话并检查可用工具","安装成功；启动无插件加载错误；web_search、advanced_search、platform_search、free_search_test 可见","P0","人工验收",""
+"CFG-002","安装与装配","补丁接管原生 web_search provider","已按 CFG-001 安装；可查看生效后的 Cordis 配置","searchProvider=ddg；插件首选 provider=bing","1. 启动 DSH
+2. 检查 web 服务 provider
+3. 调用 web_search 搜索唯一词","web_search 由本插件 id=ddg 的 provider 执行；实际首选引擎为 Bing；不会调用已禁用的 DeepSeek 原生 provider","P0","待自动化",""
+"CFG-003","安装与装配","原生 DeepSeek 搜索 provider 被禁用","已按 CFG-001 安装；无个人补丁重新启用该 provider","cordis.patch.yml 中 web-search-deepseek disabled=true","1. 启动 DSH
+2. 查看插件设置及 provider 注册
+3. 执行一次 web_search","原生 DeepSeek 搜索设置项和 provider 不重复出现；本插件搜索正常","P1","人工验收",""
+"CFG-004","安装与装配","tool-web 仅启用搜索能力","已按 CFG-001 安装","fetch=false；searchTimeoutMs=60000","1. 启动 DSH
+2. 枚举工具
+3. 分别检查 web_search 与 web_fetch","web_search 可用；本补丁不会额外启用 web_fetch；web_search 宿主预算为 60000ms","P0","待自动化",""
+"CFG-005","默认配置","首次启动采用 Bing 中文市场默认值","干净测试 profile；未创建 free-search 用户配置","provider=bing；bingMarket=zh-CN；cache=true；cacheTtl=5","1. 安装并首次启动
+2. 打开设置桥接 describe
+3. 查看系统提示中的当前引擎","首选引擎为 bing；市场为 zh-CN；缓存启用且 TTL 为 5 分钟；提示与配置一致","P1","待自动化",""
+"CFG-006","默认配置","平台搜索默认启用四个平台","干净测试 profile","github、v2ex、bilibili、reddit","1. 首次启动
+2. 打开插件设置
+3. 检查平台复选框
+4. 分别调用 platform_search","四个平台均默认启用并可被工具选择；网络不可达时返回明确错误而非误报成功","P1","人工验收",""
+"CFG-007","配置校验","未知首选引擎安全回退到 Bing","隔离 profile；允许直接编辑测试 settings.yaml","provider=unknown-engine","1. 写入未知 provider
+2. 重启插件
+3. 调用 web_search","未知值不被当作可执行引擎；搜索以 Bing 为首选继续，且不执行任意输入构造的地址或命令","P1","待自动化",""
+"CFG-008","配置校验","cacheTtl 小于下限时按 0 处理","隔离 profile","cacheTtl=-3","1. 写入配置并启动
+2. 连续两次执行相同搜索
+3. 查看 raw-search cache 标记","有效 TTL 被限制为 0；两次均执行真实搜索并返回 cache=miss","P2","待自动化",""
+"CFG-009","配置校验","cacheTtl 大于上限时按 5 处理","隔离 profile；可观察请求次数","cacheTtl=99","1. 写入配置并启动
+2. 连续两次执行相同搜索
+3. 查看请求次数和 cache 标记","有效 TTL 被限制为 5 分钟；第二次命中缓存且不重复请求引擎","P2","待自动化",""
+"CFG-010","配置优先级","设置中的 API Key 优先于 credentials 和环境变量","隔离环境；三个来源配置不同的可识别测试 Key；使用 mock 服务避免真实计费","settings=key-settings；credentials=key-cred；env=key-env","1. 同时配置三个来源
+2. 调用对应引擎
+3. 在 mock 服务检查 Authorization","请求使用 key-settings；密钥不出现在工具输出、日志或 UI 明文中","P0","待自动化",""
+"SEARCH-001","原生 web_search","单查询完整宿主链路返回可用业务结果","DSH Desktop 已装插件；网络可访问至少一个免费引擎","queries=[""DeepSeek Harness GitHub""]","1. 在真实会话请求搜索
+2. 让模型调用 web_search
+3. 打开至少一个结果链接核验","工具返回非空来源；标题与查询相关；URL 可访问且页面主题匹配；模型可基于来源回答并引用 URL","P0","人工验收",""
+"SEARCH-002","原生 web_search","多查询并发合并结果","完整宿主；至少一个免费引擎可用","queries=[""AICoin 是什么"",""AICoin 服务稳定性"",""AICoin 官方""]","1. 调用一次 web_search 传入三条查询
+2. 记录各请求开始时间
+3. 检查合并结果","三条查询并发执行而非逐条累计等待；结果按 URL 去重并受宿主上限约束；内容同时覆盖三个意图","P0","待自动化",""
+"SEARCH-003","原生 web_search","重复查询在同一调用中去重","完整宿主；可观察 provider 调用次数","queries=[""test"",""test"",""test""]","1. 调用 web_search
+2. 统计 provider.search 次数
+3. 检查结果","相同查询只执行一次；返回结果格式正常，无重复批次标题","P2","待自动化",""
+"SEARCH-004","原生 web_search","空 queries 数组被拒绝","完整宿主","queries=[]","1. 调用 web_search
+2. 查看工具错误","调用被参数校验拒绝；错误明确指出至少需要一个 query；不发送网络请求","P1","待自动化",""
+"SEARCH-005","原生 web_search","空白查询被拒绝","完整宿主","queries=[""   ""]","1. 调用 web_search
+2. 查看请求记录","返回非空字符串校验错误；不调用任何引擎","P1","待自动化",""
+"SEARCH-006","原生 web_search","查询数量超过宿主上限被拒绝","完整宿主；默认 searchMaxQueries=4","5 条不同查询","1. 调用 web_search
+2. 查看错误和网络请求","在工具入口拒绝并说明最多 4 条；provider 不被调用","P1","待自动化",""
+"SEARCH-007","原生 web_search","结果来源 URL 去重与数量上限","mock 多引擎返回重复 URL；完整宿主","maxResults 使用宿主默认 8；重复 URL 10 条","1. 执行搜索
+2. 统计来源
+3. 比较 URL","每个 URL 只出现一次；总来源不超过上限；保留首个有效来源数据","P1","待自动化",""
+"SEARCH-008","原生 web_search","全部引擎失败时返回真实原因","隔离网络或 mock 所有引擎失败","bing 超时；ddg 429；anysearch 503；付费引擎无 Key","1. 调用 web_search
+2. 等待结束
+3. 检查错误和日志","返回 all search engines failed，并包含实际引擎失败摘要；不只返回无上下文的统一 30 秒错误","P0","待自动化",""
+"SEARCH-009","原生 web_search","外部宿主超时中断整条搜索","完整宿主；mock 所有请求挂起；工具预算 60000ms","挂起响应","1. 调用 web_search
+2. 到达宿主预算
+3. 检查在途连接","宿主返回结构化 TOOL_TIMEOUT；全部在途请求收到 abort 并结束；无后台悬挂连接","P0","待自动化",""
+"SEARCH-010","原生 web_search","模型收到的搜索结果可引用且不丢字段","完整宿主；引擎返回 title、url、snippet、publishedAt","包含四字段的来源","1. 调用 web_search
+2. 检查工具结果卡和模型上下文
+3. 让模型引用来源","来源字段完整；结果卡与模型文本一致；URL 使用 Markdown 链接；不存在 undefined 序列化错误","P1","人工验收",""
+"ENG-001","免费引擎","Bing 中文搜索返回相关结果","可访问 bing.com；bingMarket=zh-CN","查询=杭州今天天气；maxResults=5","1. 指定 Bing 测试
+2. 检查前五条结果页面
+3. 核对语言与主题","返回 1-5 条可访问且与杭州天气相关的来源；不是仅凭 HTTP 200 判成功","P0","人工验收",""
+"ENG-002","免费引擎","Bing 页面格式变化返回零结果时触发回退","mock Bing 返回大于 500 字节但无 b_algo 的 HTML；DDG 返回有效结果","无 b_algo HTML","1. 以 Bing 为首选搜索
+2. 观察竞速与最终来源","Bing 被判定 returned 0 results；健康免费引擎接管；结果注明首选失败原因","P0","待自动化",""
+"ENG-003","免费引擎","DuckDuckGo HTML 正常解析","可访问 html.duckduckgo.com","查询=DeepSeek Harness；region=cn-zh","1. 指定 ddg 测试
+2. 核验标题、跳转 URL、摘要","返回真实目标 URL而非 DDG 重定向包装；标题和摘要已去 HTML 实体与标签","P1","人工验收",""
+"ENG-004","免费引擎","DuckDuckGo 反爬页面被识别为失败","mock 返回 captcha 或 unusual traffic 页面","HTTP 202 或正文含 captcha","1. 指定 ddg 搜索
+2. 查看错误或回退","反爬页不被当作业务结果；记录 rate-limited 原因并允许其他免费引擎接管","P0","待自动化",""
+"ENG-005","免费引擎","DuckDuckGo Lite 正常解析","可访问 lite.duckduckgo.com","查询=OpenAI；maxResults=3","1. 指定 ddg-lite
+2. 核验前三条来源","返回不超过 3 条相关且可访问来源；摘要与对应结果配对","P1","人工验收",""
+"ENG-006","免费引擎","短响应或空壳页被判失败","mock Bing/DDG 返回 500 字节及以下正文","0、500 字节 HTML","1. 分别调用 HTML 引擎
+2. 检查错误和回退","返回 empty response 错误；不缓存空结果；可继续回退","P1","待自动化",""
+"ENG-007","免费引擎","AnySearch 正常业务结果解析","可访问 api.anysearch.com；匿名额度可用","query=DeepSeek Harness；max_results=5","1. 指定 anysearch
+2. 核验 data.results
+3. 打开来源","返回 code=0 的业务结果；URL 可访问且内容相关；摘要最长 300 字符","P1","人工验收",""
+"ENG-008","免费引擎","AnySearch 业务错误不冒充成功","mock 返回 HTTP 200、code!=0","code=42901；message=rate limited","1. 指定 anysearch
+2. 查看结果","引擎失败并显示 API 错误；不返回空成功；允许回退","P1","待自动化",""
+"ENG-009","免费引擎","SearXNG 多实例自动切换","至少配置两个 mock 实例","实例1=HTTP 429；实例2=2 条有效 JSON 结果","1. 指定 searxng
+2. 记录实例请求顺序
+3. 核验最终来源","先尝试实例1再尝试实例2；使用实例2结果；不因单实例失败终止","P1","待自动化",""
+"ENG-010","免费引擎","SearXNG 全实例失败聚合错误","所有实例返回 429、无效 JSON或空结果","6 个实例混合失败","1. 指定 searxng
+2. 查看错误文本","错误以 all SearXNG instances failed 开头，包含各实例摘要且最长约 300 字符，不泄露敏感数据","P1","待自动化",""
+"ENG-011","Exa","无 Key 时使用 Exa MCP","未配置 EXA_API_KEY；可访问 mcp.exa.ai","query=AI agent；numResults=3","1. 指定 exa
+2. 检查请求目标和 MCP 方法
+3. 核验来源","调用 web_search_exa MCP；解析 Title/URL/Published/Highlights；只保留有效日期；结果页面相关","P1","人工验收",""
+"ENG-012","Exa","有 Key 时使用 Exa REST及精确时间范围","隔离计费测试账号或 mock；已配置 EXA_API_KEY","timeRange=3d；maxResults=5","1. 指定 exa 高级搜索
+2. 检查请求体
+3. 核验结果日期","调用 Exa REST；startPublishedDate 接近当前时间前 3 天；仅有有效 highlights 的结果进入来源","P1","待自动化",""
+"ENG-013","Tavily","无 Key 时使用匿名模式","未配置 TAVILY_API_KEY；匿名服务可用","query=DeepSeek；timeRange=week","1. 指定 tavily
+2. 检查请求头和请求体
+3. 核验来源","使用 x-tavily-access-mode=keyless；time_range=week；返回相关来源而非仅 HTTP 成功","P1","人工验收",""
+"ENG-014","Tavily","无效 Key 返回可诊断错误","隔离账号或 mock","Authorization=Bearer invalid","1. 指定 tavily
+2. 执行搜索
+3. 查看错误","401 被标记为 Tavily API Key 无效；密钥本身不进入错误、日志或工具输出","P0","待自动化",""
+"ENG-015","Keenable","无 Key 时使用 MCP并解析来源","未配置 KEENABLE_API_KEY；MCP 可访问","query=agent；timeRange=12h","1. 指定 keenable
+2. 检查 MCP 参数
+3. 核验来源","使用 keyless MCP；时间参数格式正确；提取的 URL、标题、摘要与查询相关","P1","人工验收",""
+"ENG-016","Keenable","有 Key 时使用 REST","隔离计费测试账号或 mock；配置 KEENABLE_API_KEY","query=agent；maxResults=4","1. 指定 keenable
+2. 检查请求目标和认证
+3. 核验结果","只调用 REST，不再调用 MCP；返回不超过 4 条有效业务来源","P1","待自动化",""
+"ENG-017","Perplexity","缺少 Key 时明确失败并回退","未配置 PERPLEXITY_API_KEY；另有免费引擎可用","首选=perplexity","1. 执行搜索
+2. 观察免费池与兜底
+3. 检查 Note","Perplexity 不产生未认证请求；搜索由健康免费引擎完成；Note 说明缺少 Key","P0","待自动化",""
+"ENG-018","Perplexity","有效 Key 返回引用来源","隔离计费测试账号或 mock；明确授权使用一次","query=OpenAI latest release","1. 指定 perplexity
+2. 核验 answer 与 citations
+3. 打开引用","调用 sonar 且 max_uses 约束生效；citations 转为可访问来源；答案与引用内容一致","P1","人工验收",""
+"ENG-019","DeepSeek Official","缺少 Key 时明确失败并回退","未配置 DEEPSEEK_API_KEY；免费引擎可用","首选=deepseek-official","1. 执行搜索
+2. 检查请求和 Note","不向 DeepSeek 发送未认证请求；自动使用免费引擎；Note 明确 Key 未配置","P0","待自动化",""
+"ENG-020","DeepSeek Official","有效 Key 解析官方搜索块","隔离计费测试账号或 mock；明确授权使用一次","web_search_tool_result 含重复 URL和 citations","1. 指定 deepseek-official
+2. 执行搜索
+3. 核验来源与摘要","去重 URL；citation cited_text 转为对应摘要；page_age 转为 publishedAt；不超过 maxResults","P1","人工验收",""
+"RACE-001","竞速回退","首选在 hedge 窗口内成功时不补发","Node.js >=20；使用现有假引擎测试","bing=5ms 成功；ddg=永不返回；hedge=60ms","1. 调用 hedgedRace
+2. 记录调用列表
+3. 检查胜者","胜者为 bing；调用列表只有 bing；不触发额外免费请求","P0","已自动化","tests/hedged-race.test.mjs :: 首选在 hedge 窗口内返回时，全程只发一个请求"
+"RACE-002","竞速回退","首选挂死时免费引擎快速接管","Node.js >=20；使用现有假引擎测试","bing=永不返回；ddg=20ms 成功；hedge=60ms","1. 调用 hedgedRace
+2. 测量耗时
+3. 检查来源","ddg 在 1 秒内胜出；bing 与 ddg 都被调用；不会等待旧实现的 30 秒","P0","已自动化","tests/hedged-race.test.mjs :: 首选挂死时由竞速引擎秒级接管（旧实现在此处 30 秒报错）"
+"RACE-003","竞速回退","胜出后取消落败和在途请求","Node.js >=20；假引擎暴露 raceSignal","ddg=20ms 成功；anysearch=挂起","1. 启动竞速
+2. 等待 ddg 胜出
+3. 检查 anysearch signal","落败引擎收到 aborted=true；不遗留请求","P0","已自动化","tests/hedged-race.test.mjs :: 胜出后落败与在途的请求被取消"
+"RACE-004","竞速回退","免费引擎全灭后才尝试付费兜底","Node.js >=20；假引擎","bing、ddg 失败；tavily 成功","1. 启动竞速
+2. 记录调用顺序
+3. 检查胜者","tavily 在两个免费引擎均失败后才调用并胜出，不与免费引擎并发产生费用","P0","已自动化","tests/hedged-race.test.mjs :: 免费引擎全灭后才串行尝试兜底引擎"
+"RACE-005","竞速回退","全部引擎失败返回 null 给调用方组装错误","Node.js >=20；假引擎","bing、ddg 均 reject","1. 调用 hedgedRace
+2. 检查返回值","返回 null，不伪造成功或吞掉失败流程","P1","已自动化","tests/hedged-race.test.mjs :: 全部失败返回 null（交由调用方组装带原因的错误）"
+"RACE-006","竞速回退","稍慢首选在补发后仍参与竞速","Node.js >=20；假引擎","bing=120ms 成功；ddg=永不返回；hedge=60ms","1. 启动竞速
+2. 等待结果","bing 最终胜出；补发不会浪费仍可成功的首选请求","P1","已自动化","tests/hedged-race.test.mjs :: 首选比 hedge 窗口稍慢也不会被浪费"
+"RACE-007","竞速回退","无补发引擎时等待唯一首选","Node.js >=20；假引擎","bing=120ms 成功；racers=[]","1. 启动竞速
+2. 检查结果","等待 bing 完成并返回，不在 hedge 到期时错误放弃","P1","已自动化","tests/hedged-race.test.mjs :: 没有补发引擎时，等首选跑完而不是立刻放弃"
+"RACE-008","取消语义","已取消 signal 立即中断 Bing","Node.js >=20；无需网络成功","AbortSignal.abort()","1. 调用 searchBing
+2. 测量拒绝耗时","调用在 500ms 内拒绝，不创建新的 8 秒等待","P0","已自动化","tests/fetch-cancel.test.mjs :: searchBing: 已经 abort 的 signal 立即失败"
+"RACE-009","取消语义","超时 signal 掐断 Bing 请求","Node.js >=20","AbortSignal.timeout(50)","1. 调用 searchBing
+2. 测量拒绝耗时","调用在 2 秒内拒绝，明显小于引擎自身超时","P0","已自动化","tests/fetch-cancel.test.mjs :: searchBing: 传入的超时 signal 会真正掐断请求"
+"RACE-010","取消语义","已取消 signal 立即中断 DDG","Node.js >=20；无需网络成功","AbortSignal.abort()","1. 调用 searchDdgHtml
+2. 测量拒绝耗时","调用在 500ms 内拒绝，不继续联网","P0","已自动化","tests/fetch-cancel.test.mjs :: searchDdgHtml: 已经 abort 的 signal 立即失败"
+"RACE-011","取消语义","超时 signal 掐断 DDG 请求","Node.js >=20","AbortSignal.timeout(50)","1. 调用 searchDdgHtml
+2. 测量拒绝耗时","调用在 2 秒内拒绝，不等待引擎超时","P0","已自动化","tests/fetch-cancel.test.mjs :: searchDdgHtml: 传入的超时 signal 会真正掐断请求"
+"RACE-012","取消语义","AbortSignal.any 对已取消源立即生效","Node.js >=20；本地永不响应 HTTP 服务","已 abort signal + 8000ms timeout","1. 启动本地挂起服务
+2. 使用组合 signal 请求
+3. 测量耗时","请求在 500ms 内拒绝且服务正常关闭","P0","已自动化","tests/hedged-race.test.mjs :: 已 abort 的 signal 不会让请求继续跑（端到端）"
+"ADV-001","高级搜索","固定时间范围 day/week/month/year 均可解析","完整宿主；使用支持时间过滤的 mock 引擎","day、week、month、year","1. 逐个调用 advanced_search
+2. 检查传给引擎的时间参数","分别映射为 1、7、30、365 天；结果中展示请求的 timeRange","P1","待自动化",""
+"ADV-002","高级搜索","小时相对时间解析","完整宿主；Exa 或 Keenable mock","timeRange=12h","1. 调用 advanced_search
+2. 检查请求时间边界","解析为 0.5 天；支持精确时间的引擎使用对应边界，不向未来偏移","P1","待自动化",""
+"ADV-003","高级搜索","周月年自定义相对时间解析","完整宿主；mock 引擎","3w、2mo、1.5y","1. 分别搜索
+2. 检查标准化天数","依次解析为 21、60、547.5 天；无 NaN 或单位混淆","P2","待自动化",""
+"ADV-004","高级搜索","绝对日期过滤","完整宿主；支持精确日期引擎","timeRange=2026-07-01","1. 指定 Exa 搜索
+2. 检查请求体和返回发布日期","startPublishedDate 为 2026-07-01；结果不早于该日期；若上游违约应在验收中暴露","P1","人工验收",""
+"ADV-005","高级搜索","固定档引擎对自定义时间取最近档","mock DDG、Tavily、SearXNG","2d、14d、90d、91d","1. 逐个搜索
+2. 检查上游参数","依次映射 day、week、month、year，边界值稳定","P2","待自动化",""
+"ADV-006","高级搜索","无效 timeRange 不导致崩溃","完整宿主","timeRange=recent-ish","1. 调用 advanced_search
+2. 检查请求和结果","无效值不透传为错误上游参数；按无时间过滤搜索；结果格式正常","P1","待自动化",""
+"ADV-007","高级搜索","空查询被拒绝","完整宿主","query=空字符串或空格","1. 调用 advanced_search
+2. 检查网络请求","返回 query is required；不调用引擎","P1","待自动化",""
+"ADV-008","高级搜索","maxResults 默认值和上限","完整宿主；mock 返回 20 条","未传、5、100","1. 分别调用 advanced_search
+2. 统计来源","未传默认 5；显式 5 返回不超过 5；100 被限制为 10","P1","待自动化",""
+"ADV-009","高级搜索","显式 engine 优先于设置首选","设置 provider=bing；DDG 可用","engine=ddg","1. 调用 advanced_search
+2. 记录首个引擎","ddg 成为 leader；成功时 provider=ddg；不先调用 Bing","P1","待自动化",""
+"ADV-010","高级搜索","不支持时间过滤的首选被跳过并正确说明","设置 provider=bing；指定 timeRange=week；DDG 可用","query=AI；timeRange=week","1. 调用 advanced_search
+2. 检查调用与 content Note","Bing 因不支持过滤而非失败被跳过；Note 使用 does not support time filtering 文案，不误报 Bing 故障","P1","待自动化",""
+"PLAT-001","平台搜索","GitHub 仓库搜索业务结果","GitHub 公共 API 可访问且未限流","platform=github；query=deepseek harness；maxResults=5","1. 调用 platform_search
+2. 打开返回仓库
+3. 核对 star 和描述","返回相关仓库 URL、名称、描述；star 信息与页面大致一致；不超过 5 条","P1","人工验收",""
+"PLAT-002","平台搜索","V2EX 热门主题本地匹配","V2EX API 可访问；热门主题中准备可命中词或 mock","platform=v2ex；query=命中词","1. 调用 platform_search
+2. 打开主题链接","只返回标题或正文包含查询词的热门主题；链接格式为 /t/{id}","P2","人工验收",""
+"PLAT-003","平台搜索","Bilibili 搜索去除标题标签","Bilibili API 可访问","platform=bilibili；query=DeepSeek","1. 调用平台搜索
+2. 检查标题和链接","返回视频 arcurl；标题不含 <em> 等 HTML 标签；摘要不超过 200 字符","P1","人工验收",""
+"PLAT-004","平台搜索","Reddit 搜索结果解析","可访问 old.reddit.com；未被地区或 IP 限制","platform=reddit；query=AI agent","1. 调用平台搜索
+2. 打开结果 URL","返回相关帖子或外链；标题和 selftext 对应；限制数量生效","P2","人工验收",""
+"PLAT-005","平台搜索","未知平台被拒绝","完整宿主","platform=twitter","1. 调用 platform_search
+2. 检查错误和请求","错误列出 github、v2ex、bilibili、reddit；不发网络请求","P1","待自动化",""
+"PLAT-006","平台搜索","已禁用平台不可调用","设置 platforms 不含 reddit","platform=reddit；query=test","1. 保存平台设置
+2. 调用 platform_search","返回 platform disabled 明确错误并提示在设置中启用；不访问 Reddit","P1","待自动化",""
+"PLAT-007","平台搜索","平台结果剔除 undefined 字段","mock 平台结果缺 title 或 snippet","仅 url 有值","1. 调用 platform_search
+2. 序列化工具结果","结果仅包含存在字段；满足 lossless JSON；不出现 undefined 或空键值","P2","待自动化",""
+"PLAT-008","平台搜索","平台上游限流返回真实错误","mock GitHub HTTP 403 或 Reddit 429","HTTP 403/429","1. 调用对应平台搜索
+2. 检查工具错误","不会把空列表误报成功；错误包含平台名和 HTTP 状态；不泄露响应中的敏感头","P1","待自动化",""
+"DIAG-001","引擎诊断","默认诊断全部十个引擎","完整宿主；避免真实付费 Key或使用 mock","engines 未传；query=DeepSeek Harness","1. 调用 free_search_test
+2. 检查顺序和数量","输出十个引擎各一条状态；失败不阻断后续引擎；付费引擎缺 Key 明确标 fail","P1","待自动化",""
+"DIAG-002","引擎诊断","指定部分引擎诊断","完整宿主","engines=[bing,ddg]；query=OpenAI","1. 调用 free_search_test
+2. 检查请求和输出","只测试指定两个引擎；每项包含 ok/fail、结果数或错误及样例字段","P1","待自动化",""
+"DIAG-003","引擎诊断","单引擎测试不走自动回退","Bing mock 失败；DDG 可用","engines=[bing]","1. 调用 free_search_test
+2. 查看请求记录","仅 Bing 被调用并报告失败；不会用 DDG 成功掩盖 Bing 故障","P0","待自动化",""
+"DIAG-004","引擎诊断","免费引擎空结果仅重试一次","mock 指定免费引擎连续空结果","两次空 sources","1. 调用 free_search_test
+2. 统计请求和间隔","总共请求两次，间隔约 1.5 秒；最终报告 fail 或零结果，不无限重试","P2","待自动化",""
+"DIAG-005","引擎诊断","诊断输出可被工具协议正确渲染","完整宿主；一成功一失败","bing=ok；perplexity=missing key","1. 调用 free_search_test
+2. 检查 tool-result content","content 为合法 text block 数组；成功和失败各自可读；不会出现协议校验错误","P1","人工验收",""
+"CACHE-001","结果缓存","相同搜索在 TTL 内命中缓存","cache=true；cacheTtl=5；可观察请求次数","相同 query、maxResults、timeRange、preferred","1. 连续执行两次 raw-search
+2. 统计请求
+3. 检查 cache 字段","第一次 cache=miss 并联网；第二次 cache=hit 且不联网；业务结果一致","P1","待自动化",""
+"CACHE-002","结果缓存","cache=false 完全禁用缓存","cache=false；可观察请求次数","相同查询连续两次","1. 执行两次搜索
+2. 检查请求和标记","两次都联网且为 miss；不写入缓存","P1","待自动化",""
+"CACHE-003","结果缓存","cacheTtl=0 完全禁用缓存","cache=true；cacheTtl=0","相同查询连续两次","1. 执行两次搜索
+2. 检查请求","两次都执行真实搜索；行为与 cache=false 一致","P1","待自动化",""
+"CACHE-004","结果缓存","缓存键区分查询和结果数量","cache=true","同 query；maxResults=3 与 5","1. 搜索 maxResults=3
+2. 搜索 maxResults=5","第二次不误命中第一条缓存；分别得到符合数量限制的结果","P2","待自动化",""
+"CACHE-005","结果缓存","缓存键区分时间范围和首选引擎","cache=true","同 query；timeRange=day/week；preferred=bing/ddg","1. 组合执行四次搜索
+2. 检查命中情况","不同时间范围或首选引擎使用独立缓存项，不交叉污染","P1","待自动化",""
+"CACHE-006","结果缓存","回退结果使用五分之一 TTL","cacheTtl=5；首选 Bing 失败后 DDG 成功；可控制时间","fallback 结果","1. 执行搜索并缓存 DDG 结果
+2. 60 秒内重试
+3. 超过 60 秒后恢复 Bing再试","60 秒内可命中回退缓存；超过约 60 秒后重新搜索并可恢复首选；不会锁定回退 5 分钟","P1","待自动化",""
+"CACHE-007","结果缓存","缓存最多保留 50 条并按 LRU 淘汰","cache=true；可观察网络请求；可控制时间","51 个不同查询，然后重访第2条和第1条","1. 写入 50 条
+2. 命中第2条使其最近使用
+3. 写入第51条
+4. 重访第1、2条","第1条被淘汰并重新联网；第2条仍命中；缓存不超过 50 条","P2","待自动化",""
+"CACHE-008","结果缓存","缓存返回浅拷贝避免调用方污染","cache=true；首搜成功","首次返回后修改 sources 数组","1. 获取 miss 结果
+2. 对返回 sources push 或替换
+3. 再次查询","缓存命中结果的 sources 数组不包含调用方新增项；缓存对象未被外部数组修改污染","P1","待自动化",""
+"BRIDGE-001","设置桥接","describe 仅暴露 free-search 命名空间","完整宿主；另有其他设置命名空间","POST /api/tokens-dsh-web-search-settings/describe；body={}","1. 从同源页面调用 describe
+2. 检查 namespaces","只返回 free-search；包含 schema、脱敏 value、revision 和 writable；不暴露其他插件设置","P0","待自动化",""
+"BRIDGE-002","设置桥接","API Key 在 describe 中脱敏","已保存五种测试 Key","describe 请求","1. 调用 describe
+2. 搜索 Key 原文
+3. 检查 secrets 标志","响应不含任何 Key 原文；secrets 仅以 path 和 set=true/false 表示配置状态","P0","待自动化",""
+"BRIDGE-003","设置桥接","mutate 保存允许的设置","宿主设置可写；同源 loopback 请求","设置 provider=ddg、lang=en、cacheTtl=2","1. POST mutate
+2. 再次 describe
+3. 重启宿主后复查","返回 ok；revision 更新；值持久化；重启后仍生效","P0","人工验收",""
+"BRIDGE-004","设置桥接","mutate 拒绝未暴露命名空间","同源 loopback 请求","ns=credentials；ops=set secret","1. POST mutate
+2. 检查响应和配置文件","返回 settings-not-exposed；任何其他命名空间均未改变","P0","待自动化",""
+"BRIDGE-005","设置桥接","并发 revision 冲突不会覆盖新值","可取得当前 revision；两个并发客户端","两请求使用相同 expectedRevision","1. 并发提交不同 provider
+2. 检查响应和最终值","仅一个成功；另一个返回 settings-conflict；最终值对应成功请求，无静默覆盖","P0","待自动化",""
+"BRIDGE-006","设置桥接","畸形 JSON 返回 400","同源 loopback 请求","body={invalid","1. POST mutate 和 raw-search
+2. 检查响应","HTTP 400；code 分别为 settings-rejected/search-rejected；宿主不崩溃","P1","待自动化",""
+"BRIDGE-007","设置桥接","超过 64KiB 请求体被拒绝","同源 loopback 请求","JSON body=65537 字节","1. POST mutate
+2. 检查内存、响应和设置","返回 HTTP 400；不执行 mutate；连接正常结束；不会无界缓存正文","P0","待自动化",""
+"BRIDGE-008","设置桥接安全","拒绝非 loopback 客户端","在隔离局域网测试机从另一主机访问宿主端口","远端 IPv4/IPv6 请求","1. 从非本机访问 describe、mutate、raw-search
+2. 检查响应","全部返回 403 loopback requests only；不返回设置和搜索数据","P0","人工验收",""
+"BRIDGE-009","设置桥接安全","拒绝伪造 Host 和跨站请求","本机可构造原始 HTTP 请求","Host=evil.example；Sec-Fetch-Site=cross-site；Origin 不同源","1. 分别发送三类请求
+2. 检查响应","均返回 403；不执行设置修改或搜索","P0","待自动化",""
+"BRIDGE-010","设置桥接安全","仅允许 POST 方法","同源 loopback 请求","GET/PUT/DELETE describe","1. 逐个方法请求
+2. 检查响应","非 POST 均返回 405；响应不包含敏感设置","P1","待自动化",""
+"BRIDGE-011","设置桥接安全","响应设置 no-referrer","同源 loopback 请求","describe 响应","1. 调用接口
+2. 检查响应头","Content-Type 为 application/json; charset=utf-8；Referrer-Policy 为 no-referrer","P2","待自动化",""
+"BRIDGE-012","设置桥接","raw-search 参数边界与真实业务校验","同源 loopback；免费引擎可用","maxResults=0、-1、100、abc","1. 逐个请求 raw-search
+2. 核验来源数与页面内容","结果数被限制在 1-10，非法值使用默认 5；返回来源真实相关；cache 字段准确","P1","待自动化",""
+"UI-001","设置界面","设置卡加载并展示当前状态","DSH Desktop Web UI；插件桥接可用","默认配置","1. 打开设置页
+2. 展开 Tokens Web Search 卡","卡片显示当前引擎、FREE/API KEY徽标、平台、缓存 TTL和版本；无布局重叠","P1","人工验收",""
+"UI-002","设置界面","桥接不可用时界面安全降级","阻断 bridge 路由或卸载服务端插件","describe 网络失败","1. 打开设置页
+2. 展开卡片","显示设置不可用；保存和测试按钮禁用；页面其他设置不受影响","P1","人工验收",""
+"UI-003","设置界面","中英文切换并保存","桥接可写","zh 切换 en 再重启","1. 点击语言按钮
+2. 检查文案
+3. 保存并重启","全部插件文案切为英文且无混排；lang=en 持久化；重启后保持","P2","人工验收",""
+"UI-004","设置界面","切换引擎产生未保存状态并可撤销","桥接可写","bing→ddg","1. 选择 ddg
+2. 检查未保存标识
+3. 点击撤销","选择后显示未保存；撤销重新加载 bing；未向设置写入 ddg","P1","人工验收",""
+"UI-005","设置界面","保存引擎、平台与 TTL","桥接可写","provider=anysearch；platforms=[github,bilibili]；cacheTtl=2","1. 修改三项
+2. 点击保存
+3. 刷新页面","保存期间控件禁用；成功后未保存标识消失；刷新后值一致","P0","人工验收",""
+"UI-006","设置界面","密钥只显示已配置状态不回填明文","已保存五种 Key","打开设置卡","1. 查看密钥输入框和 DOM
+2. 检查网络响应","不显示、不回填、不在 DOM 或响应中出现明文；占位符仅提示已配置","P0","人工验收",""
+"UI-007","设置界面","空密钥输入不会删除已有密钥","已配置 EXA_API_KEY；桥接可写","Exa 输入框留空并保存其他设置","1. 修改 TTL
+2. 保持密钥框为空
+3. 保存并复查 secret set","原有 Exa Key 仍保持 set=true；空输入不生成清空操作","P0","人工验收",""
+"UI-008","设置界面","测试引擎展示真实业务结果","至少一个引擎可用","provider=bing；固定测试词 DeepSeek Harness","1. 点击测试引擎
+2. 等待结果
+3. 打开样例来源","显示实际引擎、结果数和样例标题；样例页面与测试词相关；失败时显示真实原因","P1","人工验收",""
+"UI-009","聊天命令","命令名称和插件名一致","DSH Desktop 支持 commandUi","/tokens-dsh-web-search","1. 输入 /
+2. 选择命令","出现 tokens-dsh-web-search 命令，描述为切换搜索引擎；不存在旧 free-search-engine 名称","P1","人工验收",""
+"UI-010","聊天命令","弹窗切换首选引擎且保留自动回退","桥接可写；当前 bing","命令选择 ddg","1. 打开命令弹窗
+2. 核对当前标记
+3. 选择 ddg
+4. 执行搜索","选项覆盖十个引擎；ddg 成为首选并刷新提示；ddg 失败时仍自动回退，不覆盖 web_search 工具本身","P0","人工验收",""
+"LIFE-001","生命周期","插件启用时注册 provider、路由、工具和提示","可观察 Cordis 注册表","启用插件","1. 启动宿主
+2. 检查各注册表","恰好注册一个 provider、三个桥接路由、三个附加工具和一个提示 section；无重复注册警告","P0","待自动化",""
+"LIFE-002","生命周期","插件卸载时清理全部注册项","可热卸载插件的测试宿主","卸载插件","1. 启用后记录注册项
+2. 卸载插件
+3. 再检查和调用","路由、工具、提示和 provider 全部移除；调用返回未注册而非落到悬空 handler","P0","待自动化",""
+"LIFE-003","生命周期","重复启停不累积路由或命令","可热重载宿主","连续启停 5 次","1. 重复启用和停用
+2. 最后启用
+3. 调用命令与路由","每项只有一份；一次操作只触发一次请求；无监听器泄漏警告","P1","待自动化",""
+"LIFE-004","生命周期","设置变更刷新系统提示且释放旧 section","完整宿主；可读取提示 section","bing→ddg→anysearch","1. 连续保存三个 provider
+2. 每次检查提示","提示始终只有一个 free-search:engines section，Current engine 为最新值；旧 section 已释放","P1","待自动化",""
+"LIFE-005","生命周期","宿主缺少可选服务时核心搜索仍可加载","构造缺少 tools、settings、webServer、systemPrompt、commandUi 中部分服务的测试宿主","仅提供必需 web 服务","1. 加载服务端插件
+2. 检查日志与 provider","必需 web provider 正常注册；可选注入不满足时对应 UI/工具不注册但插件不崩溃","P1","待自动化",""
+"COMPAT-001","宿主兼容","Node.js 20 最低版本运行","Node.js 20.x；兼容 DSH依赖版本","pnpm test；node --check","1. 安装依赖
+2. 运行语法检查和全量测试
+3. 加载插件","无不支持 API 或语法错误；AbortSignal.any/timeout 可用；测试全部通过","P0","待自动化",""
+"COMPAT-002","宿主兼容","DSH peer 版本兼容边界","分别准备最低声明版本 rc.6、当前产品版本及未来小版本隔离环境","@deepseek-ai/dsh-settings、dsh-tools","1. 在各环境安装
+2. 启动并执行标准搜索、设置保存和工具调用","最低及当前版本链路可用；不兼容版本给出清晰安装或加载错误，不静默缺功能","P1","人工验收",""
+"COMPAT-003","平台差异","Windows 路径安装和 ASCII 辅助脚本名称","Windows 10/11；路径含空格和中文","C:\测试 插件\tokens_DshWebSearch_code","1. 从该路径安装
+2. 运行 start-deepseek-harness.cmd 和 switch-search-engine.cmd","路径正确引用；两个 ASCII 文件名脚本可启动；不存在历史中文文件名导致的打包或调用失败","P1","人工验收",""
+"COMPAT-004","平台差异","Linux/macOS 核心插件加载","Linux 与 macOS；Node.js >=20；不运行 Windows 专用脚本","pnpm install；DSH 启动","1. 安装插件
+2. 执行 web_search 和设置桥接","核心 JS、搜索与桥接正常；Windows 辅助脚本不影响安装或加载","P1","人工验收",""
+"COMPAT-005","打包发布内容","npm 包包含运行必需文件且不包含密钥和测试产物","隔离目录；执行 pnpm pack --dry-run，不发布","package files 清单","1. 查看 dry-run 文件列表
+2. 检查 tgz 内容清单","包含 lib/index.js、lib/client.js、lib/hedged-race.js、cordis.patch.yml、package.json、LICENSE；不含 .playwright-mcp、日志、密钥、用户配置","P0","待自动化",""
+"COMPAT-006","辅助切换器已知缺陷","辅助切换器引擎清单必须与核心插件一致","当前版本存在已知不一致；仅在隔离 profile 测试；不得把现状判为正确","核心支持 ddg、ddg-lite、bing、searxng、anysearch、exa、tavily、keenable、perplexity、deepseek-official","1. 比较 ALL_ENGINES、server.mjs、switch-engine.ps1 和 switch-engine.html
+2. 逐项选择","辅助工具应只展示并接受核心十个引擎，不出现未实现的 mojeek，不遗漏 anysearch、searxng、tavily、keenable、deepseek-official；当前不满足时报告缺陷","P1","待自动化",""
+"COMPAT-007","辅助切换器已知限制","辅助切换器不得写错活动 profile","当前辅助工具固定写 ~/.dsh/profiles/web；使用隔离 HOME；桌面活动 profile=desktop","desktop 与 web 两个不同配置文件","1. 用辅助工具切换引擎
+2. 检查两个 profile
+3. 重启 Desktop","应修改用户明确选择的活动 profile 并实际生效，不应静默只改 web profile；当前固定路径不满足时报告已知限制","P1","人工验收",""

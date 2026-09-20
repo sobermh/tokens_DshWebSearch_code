@@ -23,9 +23,12 @@ dsh plugin --profile desktop add file:C:\path\to\tokens_DshWebSearch_code
 
 ```powershell
 pnpm install
+pnpm test
 node --check lib/index.js
 node --check lib/client.js
 ```
+
+完整功能测试用例统一维护在 [`test/test_cases.csv`](test/test_cases.csv)。CSV 只保存用例定义，执行结果另行记录和汇报。
 
 核心文件：
 
