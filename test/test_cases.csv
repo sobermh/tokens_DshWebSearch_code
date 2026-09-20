@@ -111,33 +111,33 @@
 3. 核验来源与摘要","去重 URL；citation cited_text 转为对应摘要；page_age 转为 publishedAt；不超过 maxResults","P1","人工验收",""
 "RACE-001","竞速回退","首选在 hedge 窗口内成功时不补发","Node.js >=20；使用现有假引擎测试","bing=5ms 成功；ddg=永不返回；hedge=60ms","1. 调用 hedgedRace
 2. 记录调用列表
-3. 检查胜者","胜者为 bing；调用列表只有 bing；不触发额外免费请求","P0","已自动化","tests/hedged-race.test.mjs :: 首选在 hedge 窗口内返回时，全程只发一个请求"
+3. 检查胜者","胜者为 bing；调用列表只有 bing；不触发额外免费请求","P0","已自动化","test/hedged-race.test.mjs :: 首选在 hedge 窗口内返回时，全程只发一个请求"
 "RACE-002","竞速回退","首选挂死时免费引擎快速接管","Node.js >=20；使用现有假引擎测试","bing=永不返回；ddg=20ms 成功；hedge=60ms","1. 调用 hedgedRace
 2. 测量耗时
-3. 检查来源","ddg 在 1 秒内胜出；bing 与 ddg 都被调用；不会等待旧实现的 30 秒","P0","已自动化","tests/hedged-race.test.mjs :: 首选挂死时由竞速引擎秒级接管（旧实现在此处 30 秒报错）"
+3. 检查来源","ddg 在 1 秒内胜出；bing 与 ddg 都被调用；不会等待旧实现的 30 秒","P0","已自动化","test/hedged-race.test.mjs :: 首选挂死时由竞速引擎秒级接管（旧实现在此处 30 秒报错）"
 "RACE-003","竞速回退","胜出后取消落败和在途请求","Node.js >=20；假引擎暴露 raceSignal","ddg=20ms 成功；anysearch=挂起","1. 启动竞速
 2. 等待 ddg 胜出
-3. 检查 anysearch signal","落败引擎收到 aborted=true；不遗留请求","P0","已自动化","tests/hedged-race.test.mjs :: 胜出后落败与在途的请求被取消"
+3. 检查 anysearch signal","落败引擎收到 aborted=true；不遗留请求","P0","已自动化","test/hedged-race.test.mjs :: 胜出后落败与在途的请求被取消"
 "RACE-004","竞速回退","免费引擎全灭后才尝试付费兜底","Node.js >=20；假引擎","bing、ddg 失败；tavily 成功","1. 启动竞速
 2. 记录调用顺序
-3. 检查胜者","tavily 在两个免费引擎均失败后才调用并胜出，不与免费引擎并发产生费用","P0","已自动化","tests/hedged-race.test.mjs :: 免费引擎全灭后才串行尝试兜底引擎"
+3. 检查胜者","tavily 在两个免费引擎均失败后才调用并胜出，不与免费引擎并发产生费用","P0","已自动化","test/hedged-race.test.mjs :: 免费引擎全灭后才串行尝试兜底引擎"
 "RACE-005","竞速回退","全部引擎失败返回 null 给调用方组装错误","Node.js >=20；假引擎","bing、ddg 均 reject","1. 调用 hedgedRace
-2. 检查返回值","返回 null，不伪造成功或吞掉失败流程","P1","已自动化","tests/hedged-race.test.mjs :: 全部失败返回 null（交由调用方组装带原因的错误）"
+2. 检查返回值","返回 null，不伪造成功或吞掉失败流程","P1","已自动化","test/hedged-race.test.mjs :: 全部失败返回 null（交由调用方组装带原因的错误）"
 "RACE-006","竞速回退","稍慢首选在补发后仍参与竞速","Node.js >=20；假引擎","bing=120ms 成功；ddg=永不返回；hedge=60ms","1. 启动竞速
-2. 等待结果","bing 最终胜出；补发不会浪费仍可成功的首选请求","P1","已自动化","tests/hedged-race.test.mjs :: 首选比 hedge 窗口稍慢也不会被浪费"
+2. 等待结果","bing 最终胜出；补发不会浪费仍可成功的首选请求","P1","已自动化","test/hedged-race.test.mjs :: 首选比 hedge 窗口稍慢也不会被浪费"
 "RACE-007","竞速回退","无补发引擎时等待唯一首选","Node.js >=20；假引擎","bing=120ms 成功；racers=[]","1. 启动竞速
-2. 检查结果","等待 bing 完成并返回，不在 hedge 到期时错误放弃","P1","已自动化","tests/hedged-race.test.mjs :: 没有补发引擎时，等首选跑完而不是立刻放弃"
+2. 检查结果","等待 bing 完成并返回，不在 hedge 到期时错误放弃","P1","已自动化","test/hedged-race.test.mjs :: 没有补发引擎时，等首选跑完而不是立刻放弃"
 "RACE-008","取消语义","已取消 signal 立即中断 Bing","Node.js >=20；无需网络成功","AbortSignal.abort()","1. 调用 searchBing
-2. 测量拒绝耗时","调用在 500ms 内拒绝，不创建新的 8 秒等待","P0","已自动化","tests/fetch-cancel.test.mjs :: searchBing: 已经 abort 的 signal 立即失败"
+2. 测量拒绝耗时","调用在 500ms 内拒绝，不创建新的 8 秒等待","P0","已自动化","test/fetch-cancel.test.mjs :: searchBing: 已经 abort 的 signal 立即失败"
 "RACE-009","取消语义","超时 signal 掐断 Bing 请求","Node.js >=20","AbortSignal.timeout(50)","1. 调用 searchBing
-2. 测量拒绝耗时","调用在 2 秒内拒绝，明显小于引擎自身超时","P0","已自动化","tests/fetch-cancel.test.mjs :: searchBing: 传入的超时 signal 会真正掐断请求"
+2. 测量拒绝耗时","调用在 2 秒内拒绝，明显小于引擎自身超时","P0","已自动化","test/fetch-cancel.test.mjs :: searchBing: 传入的超时 signal 会真正掐断请求"
 "RACE-010","取消语义","已取消 signal 立即中断 DDG","Node.js >=20；无需网络成功","AbortSignal.abort()","1. 调用 searchDdgHtml
-2. 测量拒绝耗时","调用在 500ms 内拒绝，不继续联网","P0","已自动化","tests/fetch-cancel.test.mjs :: searchDdgHtml: 已经 abort 的 signal 立即失败"
+2. 测量拒绝耗时","调用在 500ms 内拒绝，不继续联网","P0","已自动化","test/fetch-cancel.test.mjs :: searchDdgHtml: 已经 abort 的 signal 立即失败"
 "RACE-011","取消语义","超时 signal 掐断 DDG 请求","Node.js >=20","AbortSignal.timeout(50)","1. 调用 searchDdgHtml
-2. 测量拒绝耗时","调用在 2 秒内拒绝，不等待引擎超时","P0","已自动化","tests/fetch-cancel.test.mjs :: searchDdgHtml: 传入的超时 signal 会真正掐断请求"
+2. 测量拒绝耗时","调用在 2 秒内拒绝，不等待引擎超时","P0","已自动化","test/fetch-cancel.test.mjs :: searchDdgHtml: 传入的超时 signal 会真正掐断请求"
 "RACE-012","取消语义","AbortSignal.any 对已取消源立即生效","Node.js >=20；本地永不响应 HTTP 服务","已 abort signal + 8000ms timeout","1. 启动本地挂起服务
 2. 使用组合 signal 请求
-3. 测量耗时","请求在 500ms 内拒绝且服务正常关闭","P0","已自动化","tests/hedged-race.test.mjs :: 已 abort 的 signal 不会让请求继续跑（端到端）"
+3. 测量耗时","请求在 500ms 内拒绝且服务正常关闭","P0","已自动化","test/hedged-race.test.mjs :: 已 abort 的 signal 不会让请求继续跑（端到端）"
 "ADV-001","高级搜索","固定时间范围 day/week/month/year 均可解析","完整宿主；使用支持时间过滤的 mock 引擎","day、week、month、year","1. 逐个调用 advanced_search
 2. 检查传给引擎的时间参数","分别映射为 1、7、30、365 天；结果中展示请求的 timeRange","P1","待自动化",""
 "ADV-002","高级搜索","小时相对时间解析","完整宿主；Exa 或 Keenable mock","timeRange=12h","1. 调用 advanced_search
