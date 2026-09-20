@@ -4,10 +4,10 @@
 3. 打开会话并检查可用工具","安装成功；启动无插件加载错误；web_search、advanced_search、platform_search、free_search_test 可见","P0","人工验收",""
 "CFG-002","安装与装配","补丁接管原生 web_search provider","已按 CFG-001 安装；可查看生效后的 Cordis 配置","searchProvider=ddg；原生provider禁用；tool-web fetch=false、timeout=60000","1. 启动 DSH
 2. 检查 web 服务 provider
-3. 调用 web_search 搜索唯一词","本插件接管web_search；不出现原生重复provider；不额外启用web_fetch；搜索预算为60000ms","P0","待自动化",""
+3. 调用 web_search 搜索唯一词","本插件接管web_search；不出现原生重复provider；不额外启用web_fetch；搜索预算为60000ms","P0","部分自动化","test/config-contract.test.mjs :: 补丁接管原生 web_search provider 并禁用原生 DeepSeek provider"
 "CFG-005","默认配置","首次启动采用 Bing 中文市场默认值","干净测试 profile；未创建 free-search 用户配置","provider=bing；bingMarket=zh-CN；cache=true；cacheTtl=5；四个平台默认启用","1. 安装并首次启动
 2. 打开设置桥接 describe
-3. 查看系统提示中的当前引擎","引擎、市场、缓存、平台及系统提示的默认值一致","P1","待自动化",""
+3. 查看系统提示中的当前引擎","引擎、市场、缓存、平台及系统提示的默认值一致","P1","部分自动化","test/config-contract.test.mjs :: 首次启动默认使用 Bing 中文市场并启用缓存"
 "CFG-007","配置校验","非法配置采用安全边界","隔离 profile；允许直接编辑测试 settings.yaml","provider=unknown；cacheTtl=-3、99","1. 写入未知 provider
 2. 重启插件
 3. 调用 web_search","未知provider回退Bing；TTL分别限制为0和5；不执行任意输入","P1","待自动化",""
@@ -35,33 +35,34 @@
 3. 让模型引用来源","来源字段完整；结果卡与模型文本一致；URL 使用 Markdown 链接；不存在 undefined 序列化错误","P1","人工验收",""
 "ENG-001","免费引擎","Bing 中文搜索返回相关结果","可访问 bing.com；bingMarket=zh-CN","正常中文结果；无b_algo页面；小于等于500字节响应","1. 指定 Bing 测试
 2. 检查前五条结果页面
-3. 核对语言与主题","正常页面返回相关可访问来源；格式变化和空壳页判失败并回退","P0","人工验收",""
+3. 核对语言与主题","正常页面返回相关可访问来源；格式变化和空壳页判失败并回退","P0","部分自动化","test/engine-adapters.test.mjs :: Bing 使用中文市场参数并解析、去重和限制结果"
 "ENG-002","免费引擎","Bing 页面格式变化返回零结果时触发回退","mock Bing 返回大于 500 字节但无 b_algo 的 HTML；DDG 返回有效结果","无 b_algo HTML","1. 以 Bing 为首选搜索
-2. 观察竞速与最终来源","Bing 被判定 returned 0 results；健康免费引擎接管；结果注明首选失败原因","P0","待自动化",""
+2. 观察竞速与最终来源","Bing 被判定 returned 0 results；健康免费引擎接管；结果注明首选失败原因","P0","部分自动化","test/engine-adapters.test.mjs :: Bing 页面格式变化时返回零条结果供回退链判定"
 "ENG-003","免费引擎","DuckDuckGo HTML 正常解析","可访问 html.duckduckgo.com","正常HTML；HTTP202；captcha或unusual traffic","1. 指定 ddg 测试
-2. 核验标题、跳转 URL、摘要","正常结果正确解析；反爬页判限流、不缓存并回退","P1","人工验收",""
+2. 核验标题、跳转 URL、摘要","正常结果正确解析；反爬页判限流、不缓存并回退","P1","部分自动化","test/engine-adapters.test.mjs :: DuckDuckGo HTML 解析跳转链接并发送时间与地区参数"
 "ENG-005","免费引擎","DuckDuckGo Lite 正常解析","可访问 lite.duckduckgo.com","查询=OpenAI；maxResults=3","1. 指定 ddg-lite
-2. 核验前三条来源","返回不超过 3 条相关且可访问来源；摘要与对应结果配对","P1","人工验收",""
+2. 核验前三条来源","返回不超过 3 条相关且可访问来源；摘要与对应结果配对","P1","部分自动化","test/engine-adapters.test.mjs :: DuckDuckGo Lite 将摘要与对应结果配对并限制数量"
 "ENG-007","免费引擎","AnySearch 正常业务结果解析","可访问 api.anysearch.com；匿名额度可用","code=0；code非0；HTTP503","1. 指定 anysearch
 2. 核验 data.results
-3. 打开来源","仅真实相关业务结果成功；业务或HTTP错误明确失败并回退","P1","人工验收",""
+3. 打开来源","仅真实相关业务结果成功；业务或HTTP错误明确失败并回退","P1","部分自动化","test/engine-adapters.test.mjs :: AnySearch 解析业务结果并区分 HTTP 与业务错误"
 "ENG-009","免费引擎","SearXNG 多实例自动切换","至少配置两个 mock 实例","首实例429、次实例有效；全实例429/无效JSON/空结果","1. 指定 searxng
 2. 记录实例请求顺序
-3. 核验最终来源","健康实例接管；全部失败时聚合各实例原因并限制错误长度","P1","待自动化",""
+3. 核验最终来源","健康实例接管；全部失败时聚合各实例原因并限制错误长度","P1","已自动化","test/engine-adapters.test.mjs :: SearXNG 首实例失败后切换并聚合全失败原因"
 "ENG-011","Exa","无 Key 时使用 Exa MCP","未配置 EXA_API_KEY；可访问 mcp.exa.ai","query=AI agent；numResults=3；分别验证无Key和有效Key","1. 指定 exa
 2. 检查请求目标和 MCP 方法
-3. 核验来源","调用 web_search_exa MCP；解析 Title/URL/Published/Highlights；只保留有效日期；结果页面相关；无Key与有Key走约定的匿名/MCP和REST路径，不泄露密钥","P1","人工验收",""
+3. 核验来源","调用 web_search_exa MCP；解析 Title/URL/Published/Highlights；只保留有效日期；结果页面相关；无Key与有Key走约定的匿名/MCP和REST路径，不泄露密钥","P1","部分自动化","test/engine-adapters.test.mjs :: Exa MCP 发送正确工具调用并解析来源字段
+test/engine-adapters.test.mjs :: Exa REST 需要密钥并以 Bearer 请求且过滤无摘要结果"
 "ENG-013","Tavily","无 Key 时使用匿名模式","未配置 TAVILY_API_KEY；匿名服务可用","query=DeepSeek；timeRange=week；分别验证无Key和有效Key","1. 指定 tavily
 2. 检查请求头和请求体
-3. 核验来源","使用 x-tavily-access-mode=keyless；time_range=week；返回相关来源而非仅 HTTP 成功；无Key与有Key走约定的匿名/MCP和REST路径，不泄露密钥","P1","人工验收",""
+3. 核验来源","使用 x-tavily-access-mode=keyless；time_range=week；返回相关来源而非仅 HTTP 成功；无Key与有Key走约定的匿名/MCP和REST路径，不泄露密钥","P1","部分自动化","test/engine-adapters.test.mjs :: Tavily 在无 Key 和有 Key 时使用对应认证方式"
 "ENG-015","Keenable","无 Key 时使用 MCP并解析来源","未配置 KEENABLE_API_KEY；MCP 可访问","query=agent；timeRange=12h；分别验证无Key和有效Key","1. 指定 keenable
 2. 检查 MCP 参数
-3. 核验来源","使用 keyless MCP；时间参数格式正确；提取的 URL、标题、摘要与查询相关；无Key与有Key走约定的匿名/MCP和REST路径，不泄露密钥","P1","人工验收",""
+3. 核验来源","使用 keyless MCP；时间参数格式正确；提取的 URL、标题、摘要与查询相关；无Key与有Key走约定的匿名/MCP和REST路径，不泄露密钥","P1","部分自动化","test/engine-adapters.test.mjs :: Keenable 根据 Key 选择 MCP 或 REST 并传递时间范围"
 "ENG-017","Perplexity","缺少 Key 时明确失败并回退","未配置 PERPLEXITY_API_KEY；另有免费引擎可用","首选=perplexity；缺Key和有效Key","1. 执行搜索
 2. 观察免费池与兜底
-3. 检查 Note","缺Key不发送未认证请求并回退；有效Key返回与答案一致的可访问引用；不泄露Key","P0","待自动化",""
+3. 检查 Note","缺Key不发送未认证请求并回退；有效Key返回与答案一致的可访问引用；不泄露Key","P0","部分自动化","test/engine-adapters.test.mjs :: Perplexity 缺 Key 不联网，有 Key 时解析答案和去重引用"
 "ENG-019","DeepSeek Official","缺少 Key 时明确失败并回退","未配置 DEEPSEEK_API_KEY；免费引擎可用","首选=deepseek-official；缺Key和有效Key","1. 执行搜索
-2. 检查请求和 Note","缺Key不发送未认证请求并回退；有效Key返回与答案一致的可访问引用；不泄露Key","P0","待自动化",""
+2. 检查请求和 Note","缺Key不发送未认证请求并回退；有效Key返回与答案一致的可访问引用；不泄露Key","P0","部分自动化","test/engine-adapters.test.mjs :: DeepSeek Official 缺 Key 不联网，有 Key 时解析并去重搜索来源"
 "RACE-001","竞速回退","首选在 hedge 窗口内成功时不补发","Node.js >=20；使用现有假引擎测试","bing=5ms 成功；ddg=永不返回；hedge=60ms","1. 调用 hedgedRace
 2. 记录调用列表
 3. 检查胜者","胜者为 bing；调用列表只有 bing；不触发额外免费请求","P0","已自动化","test/hedged-race.test.mjs :: 首选在 hedge 窗口内返回时，全程只发一个请求"
@@ -92,26 +93,29 @@
 2. 使用组合 signal 请求
 3. 测量耗时","请求在 500ms 内拒绝且服务正常关闭","P0","已自动化","test/hedged-race.test.mjs :: 已 abort 的 signal 不会让请求继续跑（端到端）"
 "ADV-001","高级搜索","固定时间范围 day/week/month/year 均可解析","完整宿主；使用支持时间过滤的 mock 引擎","day、week、month、year","1. 逐个调用 advanced_search
-2. 检查传给引擎的时间参数","分别映射为 1、7、30、365 天；结果中展示请求的 timeRange","P1","待自动化",""
+2. 检查传给引擎的时间参数","分别映射为 1、7、30、365 天；结果中展示请求的 timeRange","P1","部分自动化","test/time-range.test.mjs :: 固定时间范围映射为约定天数"
 "ADV-002","高级搜索","小时相对时间解析","完整宿主；Exa 或 Keenable mock","12h、3d、3w、2mo、1.5y、2026-07-01","1. 调用 advanced_search
-2. 检查请求时间边界","相对单位正确换算，绝对日期原样生效，不产生NaN或未来时间","P1","待自动化",""
+2. 检查请求时间边界","相对单位正确换算，绝对日期原样生效，不产生NaN或未来时间","P1","部分自动化","test/time-range.test.mjs :: 相对时间和绝对日期被正确解析，无效值不产生时间范围"
 "ADV-005","高级搜索","固定档引擎对自定义时间取最近档","mock DDG、Tavily、SearXNG","2d、14d、90d、91d、recent-ish","1. 逐个搜索
-2. 检查上游参数","有效值映射day/week/month/year；无效值按无过滤搜索","P2","待自动化",""
+2. 检查上游参数","有效值映射day/week/month/year；无效值按无过滤搜索","P2","部分自动化","test/time-range.test.mjs :: 固定档引擎选择最近时间档且 Keenable 使用相对格式
+test/engine-adapters.test.mjs :: DuckDuckGo HTML 解析跳转链接并发送时间与地区参数
+test/engine-adapters.test.mjs :: SearXNG 首实例失败后切换并聚合全失败原因
+test/engine-adapters.test.mjs :: Tavily 在无 Key 和有 Key 时使用对应认证方式"
 "ADV-007","高级搜索","空查询被拒绝","完整宿主","空查询；maxResults未传、5、100","1. 调用 advanced_search
 2. 检查网络请求","空查询不联网；结果数默认5且最大10","P1","待自动化",""
 "ADV-009","高级搜索","显式 engine 优先于设置首选","设置 provider=bing；DDG 可用","显式engine=ddg；首选bing且timeRange=week","1. 调用 advanced_search
 2. 记录首个引擎","显式引擎优先；不支持时间过滤时跳过首选并准确说明能力限制","P1","待自动化",""
 "PLAT-001","平台搜索","GitHub 仓库搜索业务结果","GitHub 公共 API 可访问且未限流","platform=github；query=deepseek harness；maxResults=5","1. 调用 platform_search
 2. 打开返回仓库
-3. 核对 star 和描述","返回相关仓库 URL、名称、描述；star 信息与页面大致一致；不超过 5 条","P1","人工验收",""
+3. 核对 star 和描述","返回相关仓库 URL、名称、描述；star 信息与页面大致一致；不超过 5 条","P1","部分自动化","test/platform-adapters.test.mjs :: GitHub 仓库搜索解析名称、描述和 star"
 "PLAT-002","平台搜索","V2EX 热门主题本地匹配","V2EX API 可访问；热门主题中准备可命中词或 mock","platform=v2ex；query=命中词","1. 调用 platform_search
-2. 打开主题链接","只返回标题或正文包含查询词的热门主题；链接格式为 /t/{id}","P2","人工验收",""
+2. 打开主题链接","只返回标题或正文包含查询词的热门主题；链接格式为 /t/{id}","P2","部分自动化","test/platform-adapters.test.mjs :: V2EX 只返回标题或正文命中的热门主题"
 "PLAT-003","平台搜索","Bilibili 搜索去除标题标签","Bilibili API 可访问","platform=bilibili；query=DeepSeek","1. 调用平台搜索
-2. 检查标题和链接","返回视频 arcurl；标题不含 <em> 等 HTML 标签；摘要不超过 200 字符","P1","人工验收",""
+2. 检查标题和链接","返回视频 arcurl；标题不含 <em> 等 HTML 标签；摘要不超过 200 字符","P1","部分自动化","test/platform-adapters.test.mjs :: Bilibili 去除标题标签并限制摘要与结果数量"
 "PLAT-004","平台搜索","Reddit 搜索结果解析","可访问 old.reddit.com；未被地区或 IP 限制","platform=reddit；query=AI agent","1. 调用平台搜索
-2. 打开结果 URL","返回相关帖子或外链；标题和 selftext 对应；限制数量生效","P2","人工验收",""
+2. 打开结果 URL","返回相关帖子或外链；标题和 selftext 对应；限制数量生效","P2","部分自动化","test/platform-adapters.test.mjs :: Reddit 解析标题和正文并忽略缺少 URL 的条目"
 "PLAT-005","平台搜索","平台异常组合处理","完整宿主","未知平台、禁用平台、403/429、缺失可选字段","1. 调用 platform_search
-2. 检查错误和请求","未知或禁用平台不联网；上游错误不误报成功；剔除undefined且不泄露敏感头","P1","待自动化",""
+2. 检查错误和请求","未知或禁用平台不联网；上游错误不误报成功；剔除undefined且不泄露敏感头","P1","部分自动化","test/platform-adapters.test.mjs :: 平台适配器拒绝未知平台并透传上游 HTTP 错误"
 "DIAG-001","引擎诊断","默认诊断全部十个引擎","完整宿主；避免真实付费 Key或使用 mock","engines 未传；query=DeepSeek Harness","1. 调用 free_search_test
 2. 检查顺序和数量","输出十个引擎各一条状态；失败不阻断后续引擎；付费引擎缺 Key 明确标 fail","P1","待自动化",""
 "DIAG-002","引擎诊断","指定部分引擎诊断","完整宿主","指定bing、ddg；一成一败；首次空结果","1. 调用 free_search_test
@@ -168,12 +172,13 @@
 3. 调用命令与路由","注册项不累积；提示只有一份且显示最新引擎；无重复请求","P1","待自动化",""
 "COMPAT-001","宿主兼容","Node.js 20 最低版本运行","Node.js 20.x；兼容 DSH依赖版本","pnpm test；node --check","1. 安装依赖
 2. 运行语法检查和全量测试
-3. 加载插件","无不支持 API 或语法错误；AbortSignal.any/timeout 可用；测试全部通过","P0","待自动化",""
+3. 加载插件","无不支持 API 或语法错误；AbortSignal.any/timeout 可用；测试全部通过","P0","部分自动化","test/package-contract.test.mjs :: 运行时和 package.json 声明 Node.js 20 最低版本"
 "COMPAT-002","宿主兼容","DSH peer 版本兼容边界","分别准备最低声明版本 rc.6、当前产品版本及未来小版本隔离环境","@deepseek-ai/dsh-settings、dsh-tools","1. 在各环境安装
 2. 启动并执行标准搜索、设置保存和工具调用","最低及当前版本链路可用；不兼容版本给出清晰安装或加载错误，不静默缺功能","P1","人工验收",""
 "COMPAT-003","平台差异","Windows 路径安装和 ASCII 辅助脚本名称","Windows 10/11；路径含空格和中文","Windows含空格/中文路径；Linux/macOS Node>=20","1. 从该路径安装
 2. 运行 start-deepseek-harness.cmd 和 switch-search-engine.cmd","核心插件跨平台可用；ASCII脚本名解决Windows历史问题且不影响其他平台","P1","人工验收",""
 "COMPAT-005","打包发布内容","npm 包包含运行必需文件且不包含密钥和测试产物","隔离目录；执行 pnpm pack --dry-run，不发布","package files 清单","1. 查看 dry-run 文件列表
-2. 检查 tgz 内容清单","包含 lib/index.js、lib/client.js、lib/hedged-race.js、cordis.patch.yml、package.json、LICENSE；不含 .playwright-mcp、日志、密钥、用户配置","P0","待自动化",""
+2. 检查 tgz 内容清单","包含 lib/index.js、lib/client.js、lib/hedged-race.js、cordis.patch.yml、package.json、LICENSE；不含 .playwright-mcp、日志、密钥、用户配置","P0","已自动化","test/package-contract.test.mjs :: npm files 清单仅包含插件运行必需文件
+test/package-contract.test.mjs :: pnpm pack dry-run 只列出发布所需内容"
 "COMPAT-006","辅助切换器已知缺陷","辅助切换器清单与profile一致","当前版本存在已知不一致；仅在隔离 profile 测试；不得把现状判为正确","核心十个引擎；desktop和web隔离profile","1. 比较 ALL_ENGINES、server.mjs、switch-engine.ps1 和 switch-engine.html
 2. 逐项选择","不出现mojeek且不遗漏核心引擎；写入活动profile；当前不满足时报告缺陷","P1","待自动化",""
