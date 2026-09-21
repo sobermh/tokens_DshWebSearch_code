@@ -1,0 +1,96 @@
+name: Verify and Publish to Private npm
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Existing stable tag to publish (leave empty for checks only)'
+        required: false
+        type: string
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.ref }}
+  cancel-in-progress: false
+
+env:
+  PRIVATE_REGISTRY: https://npm.tokensapi.ai/
+  PUBLIC_REGISTRY: https://registry.npmjs.org/
+  PACKAGE_NAME: tokens-dsh-web-search
+  APPROVED_PUBLISHER: tokenscowork
+
+jobs:
+  check:
+    name: Test and verify package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.ref }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: https://npm.tokensapi.ai/
+
+      - name: Validate release identity
+        if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
+        run: node scripts/validate-release.mjs "$RELEASE_TAG"
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+
+      # 依赖来自公共源；setup-node 写入的 .npmrc 只用于发布方向。
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --registry="$PUBLIC_REGISTRY"
+
+      # 只跑离线可用的单元测试；test:cases 需要真实联网与 --outer-root，不进 CI。
+      - name: Run tests
+        run: pnpm test
+
+      - name: Pack verified release
+        if: github.repository == 'sobermh/tokens_DshWebSearch_code' && ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) || (github.event_name == 'workflow_dispatch' && inputs.release_tag != ''))
+        run: |
+          mkdir -p .release
+          npm pack --ignore-scripts --pack-destination .release
+
+      - name: Publish to Verdaccio
+        if: github.repository == 'sobermh/tokens_DshWebSearch_code' && ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) || (github.event_name == 'workflow_dispatch' && inputs.release_tag != ''))
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.VERDACCIO_PUBLISH_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
+            echo 'Configure the VERDACCIO_PUBLISH_TOKEN repository secret before releasing.' >&2
+            exit 1
+          fi
+          publisher="$(npm whoami --registry="$PRIVATE_REGISTRY")"
+          if [ "$publisher" != "$APPROVED_PUBLISHER" ]; then
+            echo 'The registry token does not belong to the approved publisher.' >&2
+            exit 1
+          fi
+          version="$(node -p 'JSON.parse(require("fs").readFileSync("package.json", "utf8")).version')"
+          # 禁止覆盖已发布版本：命中就直接失败，改版本号后重发。
+          published="$(npm view "$PACKAGE_NAME@$version" version --registry="$PRIVATE_REGISTRY" 2>/dev/null || true)"
+          if [ -n "$published" ]; then
+            echo "$PACKAGE_NAME@$version is already published; bump the version instead of overwriting." >&2
+            exit 1
+          fi
+          npm publish .release/*.tgz --ignore-scripts --registry="$PRIVATE_REGISTRY" --tag=latest
+          npm view "$PACKAGE_NAME@$version" version --registry="$PRIVATE_REGISTRY"

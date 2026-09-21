@@ -1,6 +1,6 @@
 {
     "name":  "tokens-dsh-web-search",
-    "version":  "0.1.0",
+    "version":  "0.2.0",
     "description":  "Locally maintained web search plugin for DeepSeek Harness with free and API-backed providers.",
     "type":  "module",
     "scripts":  {
@@ -34,6 +34,13 @@
                      "free"
                  ],
     "license":  "MIT",
+    "repository":  {
+                       "type":  "git",
+                       "url":  "git+https://github.com/sobermh/tokens_DshWebSearch_code.git"
+                   },
+    "publishConfig":  {
+                          "registry":  "https://npm.tokensapi.ai/"
+                      },
     "engines":  {
                     "node":  "\u003e=20"
                 },
