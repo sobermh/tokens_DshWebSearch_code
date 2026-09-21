@@ -4,7 +4,8 @@
     "description":  "Locally maintained web search plugin for DeepSeek Harness with free and API-backed providers.",
     "type":  "module",
     "scripts":  {
-                    "test":  "node --test test/*.test.mjs"
+                    "test":  "node --test test/*.test.mjs",
+                    "test:cases":  "node test/run-test-cases.mjs"
                 },
     "main":  "lib/index.js",
     "exports":  {

@@ -26,9 +26,9 @@ test("npm files 清单仅包含插件运行必需文件", async () => {
   }
 });
 
-test("pnpm pack dry-run 只列出发布所需内容", () => {
-  const command = process.platform === "win32" ? (process.env.ComSpec ?? "cmd.exe") : "pnpm";
-  const args = process.platform === "win32" ? ["/d", "/s", "/c", "pnpm pack --dry-run"] : ["pack", "--dry-run"];
+test("npm pack dry-run 只列出发布所需内容", () => {
+  const command = process.platform === "win32" ? (process.env.ComSpec ?? "cmd.exe") : "npm";
+  const args = process.platform === "win32" ? ["/d", "/s", "/c", "npm pack --dry-run"] : ["pack", "--dry-run"];
   const result = spawnSync(command, args, {
     cwd: fileURLToPath(root),
     encoding: "utf8",
