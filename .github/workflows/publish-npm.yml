@@ -60,9 +60,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --registry="$PUBLIC_REGISTRY"
 
-      # 只跑离线可用的单元测试；test:cases 需要真实联网与 --outer-root，不进 CI。
+      # 只执行独立回归；宿主用例明确报告未执行，不计入通过数量。
       - name: Run tests
-        run: pnpm test
+        run: pnpm test -- --standalone
 
       - name: Pack verified release
         if: github.repository == 'sobermh/tokens_DshWebSearch_code' && ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) || (github.event_name == 'workflow_dispatch' && inputs.release_tag != ''))

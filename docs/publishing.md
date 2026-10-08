@@ -55,8 +55,9 @@ fork 仓库即使打了标签也只会跑检查。
 （`pnpm install --frozen-lockfile --registry=https://registry.npmjs.org/`），
 否则会拿私有源去解析公共依赖并返回 401。
 
-CI 只跑 `pnpm test`（`node --test test/*.test.mjs`，离线可用）。
-`pnpm test:cases` 需要真实联网和 `--outer-root` 参数，不进 CI。
+CI 使用统一执行器运行 `pnpm test -- --standalone`，覆盖无需外层环境的回归及发布身份校验。
+该模式明确报告宿主用例未执行，不表示完整验收通过。完整检查使用
+`pnpm test:cases -- --outer-root C:\path\to\TokensCowork`；宿主依赖必须可用，外部搜索响应由测试模拟。
 
 ## Fork 仓库注意事项
 

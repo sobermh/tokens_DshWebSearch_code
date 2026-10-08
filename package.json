@@ -2,9 +2,19 @@
     "name":  "tokens-dsh-web-search",
     "version":  "0.2.0",
     "description":  "Locally maintained web search plugin for DeepSeek Harness with free and API-backed providers.",
+    "tokenscowork": {
+        "displayName": {
+            "zh-CN": "TokensCowork 联网搜索",
+            "en-US": "TokensCowork Web Search"
+        },
+        "summary": {
+            "zh-CN": "为 web_search 提供免费及 API 搜索引擎、自动回退、时间过滤和平台搜索。",
+            "en-US": "Free and API-backed engines for web_search with automatic fallback, time filtering, and platform search."
+        }
+    },
     "type":  "module",
     "scripts":  {
-                    "test":  "node --test test/*.test.mjs",
+                    "test":  "node test/run-test-cases.mjs",
                     "test:cases":  "node test/run-test-cases.mjs"
                 },
     "main":  "lib/index.js",
@@ -42,7 +52,7 @@
                           "registry":  "https://npm.tokensapi.ai/"
                       },
     "engines":  {
-                    "node":  "\u003e=20"
+                    "node":  ">=20.3.0"
                 },
     "dependencies":  {
                          "@deepseek-ai/schemastery":  "^3.18.1"
