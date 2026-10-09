@@ -56,6 +56,11 @@ pnpm test:cases -- --outer-root C:\path\to\TokensCowork
 
 宿主链路运行真实 Cordis、`dsh-web`、`tool-web`、`commandUi` 和 locale，替换网络与会话等外围服务；未提供可用外层仓库时，
 对应测试会标记为未完成而不是通过。
+测试组加载失败时，执行器会按组报告原始错误，不把 Node 的文件级失败误报为测试名称重复；
+真实重名仍会导致非零退出，但不会中断后续测试组的结果收集。
+移动仓库目录后，旧 `node_modules` 的绝对链接可能失效，需在插件和宿主各自目录按锁文件重新安装依赖。
+宿主 `desktop/deepseek-harness` 使用自己的 `corepack pnpm`，不要套用外层的 Yarn；
+本地缓存完整时可使用 `install --offline --frozen-lockfile --ignore-scripts` 恢复测试依赖，不触发安装脚本。
 插件最低 Node 版本为 20.3.0（需要 `AbortSignal.any`）；当前外层 Harness 若要求更高版本，可再传入宿主 Node：
 
 ```powershell

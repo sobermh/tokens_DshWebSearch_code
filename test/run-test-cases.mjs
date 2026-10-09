@@ -4,6 +4,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
+// JUnit omits file-loading stderr; keep a second reporter for actionable errors.
+const suiteRunnerArgs = [
+  "--test", "--test-reporter=junit", "--test-reporter=spec",
+  "--test-reporter-destination=stdout", "--test-reporter-destination=stderr",
+];
 
 // Host fixtures are materialized in an isolated temporary directory, never in test/.
 const HOST_SPEC_SOURCE = `import { readFile } from "node:fs/promises";
@@ -200,6 +205,7 @@ const testSuites = {
   "package-contract": registerPackageContractTests,
   "platform-adapters": registerPlatformAdaptersTests,
   "plugin-runtime": registerPluginRuntimeTests,
+  "runner-contract": registerRunnerContractTests,
   "time-range": registerTimeRangeTests,
   "validate-release": registerValidateReleaseTests,
 };
@@ -209,6 +215,77 @@ if (worker) {
   await testSuites[worker]();
 } else {
   await executeCases();
+}
+
+function decodeXml(value) {
+  return value
+    .replaceAll("&quot;", '"')
+    .replaceAll("&apos;", "'")
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&amp;", "&");
+}
+
+function attribute(source, name) {
+  const match = source.match(new RegExp(`(?:^|\\s)${name}="([^"]*)"`));
+  return match ? decodeXml(match[1]) : undefined;
+}
+
+function normalizeTestPath(file) {
+  const absolute = path.isAbsolute(file) ? file : path.resolve(root, file);
+  return path.relative(root, absolute).replaceAll("\\", "/");
+}
+
+function parseJunit(xml, fallbackFile) {
+  const results = [];
+  const pattern = /<testcase\b([^>]*?)(?:\/>|>([\s\S]*?)<\/testcase>)/g;
+  for (const match of xml.matchAll(pattern)) {
+    const name = attribute(match[1], "name");
+    const file = attribute(match[1], "file") ?? fallbackFile;
+    if (!name || !file) continue;
+    const body = match[2] ?? "";
+    let status = "passed";
+    let reason = "";
+    if (/<failure\b|<error\b/.test(body)) {
+      status = "failed";
+      reason = decodeXml(body.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim()).slice(0, 500);
+    } else if (/<skipped\b/.test(body)) {
+      status = "incomplete";
+      const skipped = body.match(/<skipped\b([^>]*)(?:\/>|>([\s\S]*?)<\/skipped>)/);
+      reason = (skipped && (attribute(skipped[1], "message") || decodeXml(skipped[2] ?? "").trim()))
+        || "mapped test was skipped";
+    }
+    results.push([`${normalizeTestPath(file)} :: ${name}`, { name, status, reason }]);
+  }
+  return results;
+}
+
+function collectSuiteExecution(suite, file, execution, testResults, executionIssues) {
+  const results = parseJunit(execution.stdout ?? "", file);
+  let collectionFailed = false;
+  for (const [key, value] of results) {
+    // Node reports import failures under the file name, shared by every suite.
+    if (value.status === "failed" && normalizeTestPath(value.name) === normalizeTestPath(file)) {
+      collectionFailed = true;
+      continue;
+    }
+    if (testResults.has(key)) {
+      executionIssues.push(`${suite}: duplicate test name: ${key}`);
+      continue;
+    }
+    testResults.set(key, value);
+  }
+  if (execution.error) {
+    executionIssues.push(`${suite}: ${execution.error.message}`);
+  } else if (execution.status !== 0) {
+    const diagnostic = (execution.stderr ?? "").trim()
+      || results.filter(([, result]) => result.status === "failed").map(([, result]) => result.reason).join("; ")
+      || "no diagnostic output";
+    const cause = collectionFailed ? "test collection failed" : `exited ${execution.status}`;
+    executionIssues.push(`${suite}: ${cause}: ${diagnostic.slice(0, 2000)}`);
+  } else if (results.length === 0) {
+    executionIssues.push(`${suite}: no tests were collected`);
+  }
 }
 
 async function executeCases() {
@@ -279,47 +356,6 @@ function parseCsv(input) {
   return rows;
 }
 
-function decodeXml(value) {
-  return value
-    .replaceAll("&quot;", '"')
-    .replaceAll("&apos;", "'")
-    .replaceAll("&lt;", "<")
-    .replaceAll("&gt;", ">")
-    .replaceAll("&amp;", "&");
-}
-
-function attribute(source, name) {
-  const match = source.match(new RegExp(`${name}="([^"]*)"`));
-  return match ? decodeXml(match[1]) : undefined;
-}
-
-function normalizeTestPath(file) {
-  const absolute = path.isAbsolute(file) ? file : path.resolve(root, file);
-  return path.relative(root, absolute).replaceAll("\\", "/");
-}
-
-function parseJunit(xml, fallbackFile) {
-  const results = new Map();
-  const pattern = /<testcase\b([^>]*?)(?:\/>|>([\s\S]*?)<\/testcase>)/g;
-  for (const match of xml.matchAll(pattern)) {
-    const name = attribute(match[1], "name");
-    const file = attribute(match[1], "file") ?? fallbackFile;
-    if (!name || !file) continue;
-    const body = match[2] ?? "";
-    let status = "passed";
-    let reason = "";
-    if (/<failure\b|<error\b/.test(body)) {
-      status = "failed";
-      reason = decodeXml(body.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim()).slice(0, 500);
-    } else if (/<skipped\b/.test(body)) {
-      status = "incomplete";
-      reason = "mapped test was skipped";
-    }
-    results.set(`${normalizeTestPath(file)} :: ${name}`, { status, reason });
-  }
-  return results;
-}
-
 function fail(message) {
   console.error(`INCOMPLETE\tCSV\t${message}`);
   process.exitCode = 1;
@@ -358,21 +394,13 @@ const testResults = new Map();
 const executionIssues = [];
 for (const suite of suiteNames) {
   const file = runnerPath;
-  const execution = spawnSync(process.execPath, ["--test", "--test-reporter=junit", file], {
+  const execution = spawnSync(process.execPath, [...suiteRunnerArgs, file], {
     cwd: root,
     env: { ...process.env, TOKENS_WEB_SEARCH_TEST_SUITE: suite },
     encoding: "utf8",
     maxBuffer: 16 * 1024 * 1024,
   });
-  for (const [key, value] of parseJunit(execution.stdout ?? "", file)) {
-    if (testResults.has(key)) throw new Error("duplicate test name: " + key);
-    testResults.set(key, value);
-  }
-  if (execution.error) {
-    executionIssues.push(execution.error.message);
-  } else if (execution.status !== 0) {
-    executionIssues.push(`${suite} exited ${execution.status}: ${(execution.stderr ?? "").trim().slice(0, 300)}`);
-  }
+  collectSuiteExecution(suite, file, execution, testResults, executionIssues);
 }
 const failures = [];
 const deferredCases = [];
@@ -425,6 +453,94 @@ if (failures.length === 0) {
   }
   process.exitCode = 1;
 }
+}
+async function registerRunnerContractTests() {
+const { strict: assert } = await import("node:assert");
+const { mkdtemp, writeFile, rm } = await import("node:fs/promises");
+const { tmpdir } = await import("node:os");
+const { default: test } = await import("node:test");
+const file = fileURLToPath(import.meta.url);
+const mapping = (name) => `test/run-test-cases.mjs :: ${name}`;
+
+test("runner preserves dependency errors when multiple suites fail collection", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "tokens-web-search-runner-"));
+  try {
+    const entry = path.join(directory, "missing-dependency.mjs");
+    await writeFile(entry, 'import "@tokens-web-search/nonexistent-test-dependency";\n', "utf8");
+    const env = { ...process.env };
+    delete env.NODE_TEST_CONTEXT;
+    const results = new Map();
+    const issues = [];
+    for (const suite of ["engine-adapters", "plugin-runtime"]) {
+      const execution = spawnSync(process.execPath, [...suiteRunnerArgs, entry], {
+        encoding: "utf8", timeout: 10_000,
+        env,
+      });
+      assert.equal(execution.status, 1, String(execution.stdout) + "\n" + String(execution.stderr));
+      collectSuiteExecution(suite, entry, execution, results, issues);
+      assert.match(issues.at(-1), /ERR_MODULE_NOT_FOUND/, String(execution.stdout) + "\n" + String(execution.stderr));
+    }
+    assert.equal(results.size, 0, "file-level failures must not become mapped business tests");
+    assert.equal(issues.length, 2);
+    assert.match(issues[0], /^engine-adapters: test collection failed:/);
+    assert.match(issues[1], /^plugin-runtime: test collection failed:/);
+    for (const issue of issues) {
+      assert.match(issue, /ERR_MODULE_NOT_FOUND/);
+      assert.match(issue, /@tokens-web-search\/nonexistent-test-dependency/);
+      assert.doesNotMatch(issue, /duplicate test name/);
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("runner maps successful JUnit tests by exact decoded names", () => {
+  const results = new Map();
+  const issues = [];
+  collectSuiteExecution("client-command", file, {
+    status: 0, stderr: "",
+    stdout: '<testsuites><testcase classname="wrong-name" name="search &amp; fetch"/>'
+      + '<testcase name="engine &quot;bing&quot;"></testcase></testsuites>',
+  }, results, issues);
+  assert.deepEqual([...results.keys()], [mapping("search & fetch"), mapping('engine "bing"')]);
+  assert.ok([...results.values()].every((result) => result.status === "passed"));
+  assert.deepEqual(issues, []);
+});
+
+test("runner reports genuine duplicate test names without aborting other suites", () => {
+  const results = new Map();
+  const issues = [];
+  collectSuiteExecution("first-suite", file, {
+    status: 0, stdout: '<testcase name="duplicate"/><testcase name="duplicate"/>',
+  }, results, issues);
+  collectSuiteExecution("second-suite", file, {
+    status: 0, stdout: '<testcase name="duplicate"/><testcase name="later test"/>',
+  }, results, issues);
+  assert.equal(issues.length, 2);
+  assert.match(issues[0], /^first-suite: duplicate test name:/);
+  assert.match(issues[1], /^second-suite: duplicate test name:/);
+  assert.deepEqual([...results.keys()], [mapping("duplicate"), mapping("later test")]);
+});
+
+test("runner never reports skipped failed or empty executions as passed", () => {
+  const results = new Map();
+  const issues = [];
+  collectSuiteExecution("host-integration", file, {
+    status: 1, stderr: "Cannot find package 'turndown'",
+    stdout: '<testcase name="skipped host"><skipped message="host Vitest link is broken"/></testcase>'
+      + '<testcase name="failed host"><failure>expected sources &amp; citations</failure></testcase>',
+  }, results, issues);
+  assert.equal(results.get(mapping("skipped host")).status, "incomplete");
+  assert.equal(results.get(mapping("skipped host")).reason, "host Vitest link is broken");
+  assert.equal(results.get(mapping("failed host")).status, "failed");
+  assert.equal(results.get(mapping("failed host")).reason, "expected sources & citations");
+  assert.match(issues[0], /host-integration: exited 1: Cannot find package 'turndown'/);
+  collectSuiteExecution("empty-suite", file, { status: 0, stdout: "" }, results, issues);
+  assert.equal(issues[1], "empty-suite: no tests were collected");
+  collectSuiteExecution("spawn-error", file, { status: null, error: new Error("spawn ENOENT") }, results, issues);
+  assert.equal(issues[2], "spawn-error: spawn ENOENT");
+  assert.equal(results.size, 2);
+});
 }
 async function registerClientCommandTests() {
 const { strict: assert } = await import("node:assert");
@@ -1117,8 +1233,11 @@ const { default: test } = await import("node:test");
 const outerRoot = process.env.TOKENS_OUTER_ROOT ? path.resolve(process.env.TOKENS_OUTER_ROOT) : undefined;
 const vitest = outerRoot ? path.join(outerRoot, "desktop", "deepseek-harness", "node_modules", "vitest", "vitest.mjs") : "";
 const hostNode = process.env.TOKENS_HOST_NODE ? path.resolve(process.env.TOKENS_HOST_NODE) : process.execPath;
+const missingHost = !outerRoot
+  ? "TOKENS_OUTER_ROOT or --outer-root is required for host integration"
+  : !existsSync(vitest) ? `host Vitest dependency is missing or its link is broken: ${vitest}` : false;
 test("real host tool-web executes this plugin provider end to end", {
-  skip: !outerRoot || !existsSync(vitest) ? "set TOKENS_OUTER_ROOT to a prepared TokensCowork checkout" : false,
+  skip: missingHost,
 }, async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "tokens-web-search-integration-"));
   try {
