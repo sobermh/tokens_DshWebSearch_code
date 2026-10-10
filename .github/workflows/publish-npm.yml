@@ -31,6 +31,8 @@ jobs:
   check:
     name: Test and verify package
     runs-on: ubuntu-latest
+    outputs:
+      package: ${{ steps.package.outputs.package }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -70,6 +72,14 @@ jobs:
           mkdir -p .release
           npm pack --ignore-scripts --pack-destination .release
 
+      - name: 检查 · 发布包检查的只读凭证
+        if: github.repository == 'sobermh/tokens_DshWebSearch_code' && ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) || (github.event_name == 'workflow_dispatch' && inputs.release_tag != ''))
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.PLUGIN_CHECK_REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n "${NODE_AUTH_TOKEN:-}" ]] || { echo '::error::请配置只读 Secret PLUGIN_CHECK_REGISTRY_TOKEN'; exit 1; }
+          [[ "$(npm whoami --registry=https://npm.tokensapi.ai/)" == market ]] || { echo '::error::包检查需要 market 只读账号'; exit 1; }
       - name: Publish to Verdaccio
         if: github.repository == 'sobermh/tokens_DshWebSearch_code' && ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) || (github.event_name == 'workflow_dispatch' && inputs.release_tag != ''))
         env:
@@ -94,3 +104,18 @@ jobs:
           fi
           npm publish .release/*.tgz --ignore-scripts --registry="$PRIVATE_REGISTRY" --tag=latest
           npm view "$PACKAGE_NAME@$version" version --registry="$PRIVATE_REGISTRY"
+      - name: 报告 · 输出已发布的准确版本
+        id: package
+        if: github.repository == 'sobermh/tokens_DshWebSearch_code' && ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) || (github.event_name == 'workflow_dispatch' && inputs.release_tag != ''))
+        run: node -p '"package=" + require("./package.json").name + "@" + require("./package.json").version' >> "$GITHUB_OUTPUT"
+
+  package-check:
+    name: 检查 · 插件发布包
+    needs: check
+    if: needs.check.outputs.package != ''
+    uses: TokensAPI/tokens_DshPluginCheck_code/.github/workflows/check-plugin-package.yml@e58ceb1d238101925fe49841e5ccedd7e8eb2c10
+    with:
+      package: ${{ needs.check.outputs.package }}
+      checker_ref: e58ceb1d238101925fe49841e5ccedd7e8eb2c10
+    secrets:
+      PLUGIN_CHECK_REGISTRY_TOKEN: ${{ secrets.PLUGIN_CHECK_REGISTRY_TOKEN }}
