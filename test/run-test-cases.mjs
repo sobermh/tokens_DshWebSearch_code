@@ -22,6 +22,8 @@ import WebRuntime from "@deepseek-ai/dsh-web";
 import * as ToolWeb from "@deepseek-ai/dsh-tool-web";
 import { CommandUiRuntime } from "@tokens-host/command-ui";
 import { LocaleRuntime } from "@tokens-host/locale";
+import HostSettings from "@tokens-host/dsh-settings";
+import * as PluginSettings from "@deepseek-ai/dsh-settings";
 import * as WebSearchPlugin from "@tokens-web-search/plugin";
 function bingHtml(query) {
     return "x".repeat(600) + [
@@ -29,7 +31,59 @@ function bingHtml(query) {
         \`<li class="b_algo"><h2><a href="https://results.test/shared">shared</a></h2><p>shared snippet</p></li>\`,
     ].join("");
 }
+function outerRoot() {
+    const value = process.env.TOKENS_OUTER_ROOT;
+    if (!value)
+        throw new Error("TOKENS_OUTER_ROOT is required");
+    return value;
+}
+async function productPins() {
+    const read = async (...segments) => JSON.parse(await readFile(path.join(outerRoot(), ...segments), "utf8"));
+    return { product: await read("product.json"), desktop: await read("desktop", "package.json") };
+}
 describe("real TokensHarness web_search integration", () => {
+    it("installs its settings section through the contract this host publishes", async () => {
+        const { product, desktop } = await productPins();
+        // Two generations of settings contract. DSH 0.1 exports
+        // installSettingsSection/settingsNamespace and installs an explicit
+        // section; DSH 0.2 removed installSection together with both helpers and
+        // derives the form from the entry's volatile Config instead. Pin which
+        // one this host really has, so the compat shim can never fake a contract
+        // no host provides and hide a plugin that cannot even be imported.
+        const legacy = typeof HostSettings.prototype.installSection === "function";
+        expect(legacy).toBe(product.desktop.runtimeVersion.startsWith("0.1."));
+        const resolutions = Object.entries(desktop.resolutions ?? {})
+            .filter(([selector]) => selector.startsWith("@deepseek-ai/dsh-settings@"))
+            .map(([, target]) => target);
+        expect(resolutions.length).toBeGreaterThan(0);
+        if (legacy) {
+            // Desktop publishes the helpers through its own patch, which is what
+            // the compat shim mirrors; assert the patch is still wired, not just
+            // present on disk.
+            const patches = resolutions
+                .filter((target) => target.startsWith("patch:"))
+                .map((target) => target.slice(target.indexOf("#./") + 3));
+            expect(patches.length).toBe(resolutions.length);
+            for (const patch of new Set(patches)) {
+                const text = await readFile(path.join(outerRoot(), "desktop", patch), "utf8");
+                expect(text).toContain("function settingsNamespace(value)");
+                expect(text).toContain("function installSettingsSection(ctx, ns, schema, entry, hooks)");
+            }
+            expect(typeof PluginSettings.installSettingsSection).toBe("function");
+            expect(typeof PluginSettings.settingsNamespace).toBe("function");
+        }
+        else {
+            expect(resolutions.every((target) => !target.startsWith("patch:"))).toBe(true);
+            expect(PluginSettings.installSettingsSection).toBeUndefined();
+            expect(PluginSettings.settingsNamespace).toBeUndefined();
+        }
+        // The plugin must take the branch this host can serve: a volatile Config
+        // exactly when the host derives forms from one.
+        const json = WebSearchPlugin.Config.toJSON();
+        expect(Boolean(json.refs[String(json.uid)].meta.volatile)).toBe(!legacy);
+        // The bridge protocol keeps the same namespace on both hosts.
+        expect(WebSearchPlugin.FREE_SEARCH_NS).toBe("free-search");
+    });
     it("registers the client command with real commandUi and locale and removes it on unload", async () => {
         const ctx = new Context();
         const locale = new LocaleRuntime(ctx);
@@ -38,7 +92,15 @@ describe("real TokensHarness web_search integration", () => {
         ctx.provide("inputTriggers", {
             registerSource(value) { source = value; return () => { source = undefined; }; },
         });
-        ctx.provide("sessions", { subagentAddress: () => undefined });
+        // DSH 0.2 keys the command directory by session and pulls the catalog
+        // through a retained binding; 0.1 only ever asked for subagentAddress.
+        const binding = { session: { getSnapshot: () => ({ openState: "open" }) } };
+        ctx.provide("sessions", {
+            subagentAddress: () => undefined,
+            binding: () => binding,
+            sessionOf: () => undefined,
+            using: (sessionId, options, run) => run({ binding }),
+        });
         const commands = { list: async () => ({ ok: true, value: [] }) };
         ctx.provide("remote", { commands, $on: () => () => { } });
         ctx.provide("remote.commands", commands);
@@ -73,14 +135,10 @@ describe("real TokensHarness web_search integration", () => {
         }
     });
     it("mounts the plugin provider and executes concurrent deduplicated queries through tool-web", async () => {
-        const outerRoot = process.env.TOKENS_OUTER_ROOT;
-        if (!outerRoot)
-            throw new Error("TOKENS_OUTER_ROOT is required");
-        const toolWebPackage = JSON.parse(await readFile(path.join(outerRoot, "desktop", "deepseek-harness", "packages", "web", "tool-web", "package.json"), "utf8"));
-        expect(toolWebPackage.version).toBe("0.1.5-rc.2");
-        const settingsPatch = await readFile(path.join(outerRoot, "desktop", "patches", "dsh-settings@0.1.5-rc.1.patch"), "utf8");
-        expect(settingsPatch).toContain("function settingsNamespace(value)");
-        expect(settingsPatch).toContain("function installSettingsSection(ctx, ns, schema, entry, hooks)");
+        const { product } = await productPins();
+        const toolWebPackage = JSON.parse(await readFile(path.join(outerRoot(), "desktop", "deepseek-harness", "packages", "web", "tool-web", "package.json"), "utf8"));
+        // The suite is only meaningful against the Harness this product locks.
+        expect(toolWebPackage.version).toBe(product.desktop.runtimeVersion);
         const started = [];
         vi.stubGlobal("fetch", vi.fn(async (url) => {
             const query = new URL(String(url)).searchParams.get("q") ?? "";
@@ -180,19 +238,30 @@ export default {
     testTimeout: 30_000,
   },
 };`;
-const HOST_SETTINGS_SOURCE = `export * from "@tokens-host/dsh-settings";
+// Desktop publishes dsh-settings with the product patch that adds the two section
+// helpers back; the Harness monorepo source never carried them. Mirror that shape
+// and only that shape: DSH 0.2 dropped installSection along with both helpers, so
+// exporting them unconditionally would make this suite exercise a contract no host
+// provides -- and hide a plugin that cannot be imported on the real 0.2 host.
+const HOST_SETTINGS_SOURCE = `import HostSettings from "@tokens-host/dsh-settings";
+export * from "@tokens-host/dsh-settings";
+const legacy = typeof HostSettings.prototype.installSection === "function";
 const NAMESPACE_PATTERN = /^[a-z][a-z0-9-]*$/;
-export function settingsNamespace(value) {
-    if (!NAMESPACE_PATTERN.test(value)) {
-        throw new TypeError(\`settings namespace "\${value}" must match \${String(NAMESPACE_PATTERN)}\`);
+export const settingsNamespace = legacy
+    ? (value) => {
+        if (!NAMESPACE_PATTERN.test(value)) {
+            throw new TypeError(\`settings namespace "\${value}" must match \${String(NAMESPACE_PATTERN)}\`);
+        }
+        return value;
     }
-    return value;
-}
-export function installSettingsSection(ctx, ns, schema, entry, hooks) {
-    ctx.inject(["settings"], (settingsCtx) => {
-        settingsCtx.settings.installSection(ctx, ns, schema, entry, hooks);
-    });
-}`;
+    : undefined;
+export const installSettingsSection = legacy
+    ? (ctx, ns, schema, entry, hooks) => {
+        ctx.inject(["settings"], (settingsCtx) => {
+            settingsCtx.settings.installSection(ctx, ns, schema, entry, hooks);
+        });
+    }
+    : undefined;`;
 
 // Each suite gets its own Node process to isolate fetch mocks and lifecycle hooks.
 const testSuites = {
