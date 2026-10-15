@@ -2107,7 +2107,9 @@ test("时间范围拒绝零值溢出和不存在的日期", () => {
 
 async function registerValidateReleaseTests() {
 const { strict: assert } = await import("node:assert");
-const { readFileSync } = await import("node:fs");
+const { mkdtempSync, readFileSync, rmSync } = await import("node:fs");
+const { tmpdir } = await import("node:os");
+const { join } = await import("node:path");
 const { default: test } = await import("node:test");
 const { validateRelease } = await import("../scripts/validate-release.mjs");
 const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
@@ -2145,5 +2147,54 @@ test("标签与 package.json 版本不一致时拒绝发布", () => {
 });
 test("缺少标签参数时拒绝发布", () => {
   assert.throws(() => validateRelease(baseline(), undefined), /must match package\.json version/);
+});
+test("缺少只读凭证时跳过包检查但不阻断发布", () => {
+  const workflow = readFileSync(new URL("../.github/workflows/publish-npm.yml", import.meta.url), "utf8");
+  const lines = workflow.split(/\r?\n/);
+  // 发布包检查是附加门禁，这里直接取工作流里真实的脚本，避免用例和 CI 行为漂移。
+  const marker = lines.findIndex((line) => line.trim() === "id: checker");
+  assert.ok(marker > 0, "只读凭证步骤必须带 id: checker 才能产出开关");
+  const runAt = lines.findIndex((line, index) => index > marker && line.trim() === "run: |");
+  assert.ok(runAt > marker, "只读凭证步骤必须有 run 脚本");
+  const indent = lines[runAt].length - lines[runAt].trimStart().length + 2;
+  const body = [];
+  for (const line of lines.slice(runAt + 1)) {
+    if (line.trim() !== "" && line.length - line.trimStart().length < indent) break;
+    body.push(line.slice(indent));
+  }
+  const script = body.join("\n");
+
+  // 缺只读凭证时警告并跳过；凭证存在但账号不对仍然失败。
+  assert.match(script, /::warning::[^\n]*PLUGIN_CHECK_REGISTRY_TOKEN/u);
+  assert.match(script, /enabled=false/u);
+  assert.match(script, /enabled=true/u);
+  assert.match(script, /npm whoami[^\n]*== market/u);
+  // 只读检查绝不碰发布令牌，也不发布。
+  assert.doesNotMatch(script, /npm publish/u);
+  assert.doesNotMatch(script, /VERDACCIO_PUBLISH_TOKEN/u);
+
+  // 开关必须串到包检查作业，否则跳过只是步骤内部行为。
+  assert.match(workflow, /package-check: \$\{\{ steps\.checker\.outputs\.enabled \}\}/u);
+  assert.match(workflow, /needs\.check\.outputs\.package-check == 'true'/u);
+  // 发布者护栏不因为缺少只读凭证而放松。
+  assert.match(workflow, /APPROVED_PUBLISHER: tokenscowork/u);
+  assert.match(workflow, /\$publisher" != "\$APPROVED_PUBLISHER"/u);
+
+  // bash 行为只在 CI 的 Linux runner 上实跑；Windows 的 bash 可能是 WSL，不作为判据。
+  if (process.platform !== "win32") {
+    const directory = mkdtempSync(join(tmpdir(), "web-search-checker-"));
+    try {
+      const outputFile = join(directory, "output");
+      const skipped = spawnSync("bash", ["-c", script], {
+        encoding: "utf8",
+        env: { ...process.env, NODE_AUTH_TOKEN: "", GITHUB_OUTPUT: outputFile },
+      });
+      assert.equal(skipped.status, 0, skipped.stderr);
+      assert.match(skipped.stdout, /::warning::[^\n]*PLUGIN_CHECK_REGISTRY_TOKEN/u);
+      assert.equal(readFileSync(outputFile, "utf8").trim(), "enabled=false");
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  }
 });
 }

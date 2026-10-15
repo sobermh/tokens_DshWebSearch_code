@@ -49,6 +49,17 @@ fork 仓库即使打了标签也只会跑检查。
 凭据只通过 `secrets.VERDACCIO_PUBLISH_TOKEN` 注入到 `NODE_AUTH_TOKEN` 环境变量，
 由 `actions/setup-node` 写进 runner 的 `.npmrc`；不写入仓库文件、不打印到日志。
 
+## 发布后的包检查
+
+发布后的统一包检查由 `检查 · 插件发布包` 作业调用固定提交的公共流程完成，使用**只读** Secret
+`PLUGIN_CHECK_REGISTRY_TOKEN`，账号必须是 `market`。它是附加门禁，不是发布前置：
+
+- **未配置**：发布前给出 `::warning::` 并跳过包检查，**不阻断发布**；
+- **已配置但账号不是 `market`**：在发布前失败，避免拿错账号去跑检查。
+
+只读凭证只交给检查步骤和包检查作业，绝不把 `VERDACCIO_PUBLISH_TOKEN` 用于检查；
+反过来，`必须是 tokenscowork 才能发布` 这条护栏也不因为缺少只读凭证而放松。
+
 ## 依赖来源
 
 `actions/setup-node` 的 `registry-url` 只用于**发布**方向。安装依赖时显式指定公共源

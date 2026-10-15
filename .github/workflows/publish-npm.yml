@@ -33,6 +33,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       package: ${{ steps.package.outputs.package }}
+      package-check: ${{ steps.checker.outputs.enabled }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -72,14 +73,22 @@ jobs:
           mkdir -p .release
           npm pack --ignore-scripts --pack-destination .release
 
+      # 发布包检查是附加门禁：未配置只读 Secret 时跳过检查但不阻断发布；
+      # 一旦配置，账号必须是 market，配错仍在发布前失败。
       - name: 检查 · 发布包检查的只读凭证
+        id: checker
         if: github.repository == 'sobermh/tokens_DshWebSearch_code' && ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) || (github.event_name == 'workflow_dispatch' && inputs.release_tag != ''))
         env:
           NODE_AUTH_TOKEN: ${{ secrets.PLUGIN_CHECK_REGISTRY_TOKEN }}
         run: |
           set -euo pipefail
-          [[ -n "${NODE_AUTH_TOKEN:-}" ]] || { echo '::error::请配置只读 Secret PLUGIN_CHECK_REGISTRY_TOKEN'; exit 1; }
+          if [[ -z "${NODE_AUTH_TOKEN:-}" ]]; then
+            echo '::warning::未配置只读 Secret PLUGIN_CHECK_REGISTRY_TOKEN，本次跳过发布包检查'
+            echo 'enabled=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           [[ "$(npm whoami --registry=https://npm.tokensapi.ai/)" == market ]] || { echo '::error::包检查需要 market 只读账号'; exit 1; }
+          echo 'enabled=true' >> "$GITHUB_OUTPUT"
       - name: Publish to Verdaccio
         if: github.repository == 'sobermh/tokens_DshWebSearch_code' && ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) || (github.event_name == 'workflow_dispatch' && inputs.release_tag != ''))
         env:
@@ -112,7 +121,7 @@ jobs:
   package-check:
     name: 检查 · 插件发布包
     needs: check
-    if: needs.check.outputs.package != ''
+    if: needs.check.outputs.package != '' && needs.check.outputs.package-check == 'true'
     uses: TokensAPI/tokens_DshPluginCheck_code/.github/workflows/check-plugin-package.yml@e58ceb1d238101925fe49841e5ccedd7e8eb2c10
     with:
       package: ${{ needs.check.outputs.package }}
