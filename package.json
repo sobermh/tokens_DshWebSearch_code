@@ -1,6 +1,6 @@
 {
     "name":  "tokens-dsh-web-search",
-    "version":  "0.2.0",
+    "version":  "0.2.1",
     "description":  "Locally maintained web search plugin for DeepSeek Harness with free and API-backed providers.",
     "tokenscowork": {
         "displayName": {
