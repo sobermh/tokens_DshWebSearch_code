@@ -55,7 +55,10 @@ pnpm test:cases -- --outer-root C:\path\to\TokensCowork
 ```
 
 宿主链路运行真实 Cordis、`dsh-web`、`tool-web`、`commandUi` 和 locale，替换网络与会话等外围服务；未提供可用外层仓库时，
-对应测试会标记为未完成而不是通过。
+对应测试会标记为未完成而不是通过。另有两条常驻契约用例也只在真实宿主上跑：在真实 `app-boot` 上由 volatile Config
+派生设置表单、`settings.update` 落盘并通知插件、插件自己的桥接完成命名空间映射（HOST-003），以及用宿主自己的
+`evaluatePluginCompatibility` 核对 `peerDependencies` 区间在各运行时的放行与拦截，并用一条无法满足的假 peer
+做反向对照（HOST-004）。
 测试组加载失败时，执行器会按组报告原始错误，不把 Node 的文件级失败误报为测试名称重复；
 真实重名仍会导致非零退出，但不会中断后续测试组的结果收集。
 移动仓库目录后，旧 `node_modules` 的绝对链接可能失效，需在插件和宿主各自目录按锁文件重新安装依赖。

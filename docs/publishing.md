@@ -20,7 +20,9 @@ fork 仓库即使打了标签也只会跑检查。
 
 ## 发布流程
 
-1. 改 `package.json` 的 `version`（只允许稳定版 `x.y.z`，预发布版本会被 `scripts/validate-release.mjs` 拒绝）。
+1. 改 `package.json` 的 `version`（只允许稳定版 `x.y.z`，预发布版本会被 `scripts/validate-release.mjs` 拒绝），
+   并在 `CHANGELOG.md` 里补上该版本的小节和底部的 compare 链接。`validate-release.mjs` 不检查 changelog，
+   漏了不会挡住发布，所以这一步要在改版本号时顺手做完。
 2. 提交并推送到 `main`，确认检查通过。
 3. 打标签并推送：
 

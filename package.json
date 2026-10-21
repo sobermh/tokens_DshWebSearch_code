@@ -58,9 +58,17 @@
                          "@deepseek-ai/schemastery":  "^3.18.1"
                      },
     "peerDependencies":  {
-                             "@deepseek-ai/dsh-settings":  "\u003e=0.1.0-rc.6",
-                             "@deepseek-ai/dsh-tools":  "\u003e=0.1.0-rc.6"
+                             "@deepseek-ai/dsh-settings":  "\u003e=0.1.0-rc.6 \u003c0.3.0-0",
+                             "@deepseek-ai/dsh-tools":  "\u003e=0.1.0-rc.6 \u003c0.3.0-0"
                          },
+    "peerDependenciesMeta":  {
+                                 "@deepseek-ai/dsh-settings":  {
+                                                                   "optional":  true
+                                                               },
+                                 "@deepseek-ai/dsh-tools":  {
+                                                                "optional":  true
+                                                            }
+                             },
     "devDependencies":  {
                             "@deepseek-ai/dsh-settings":  "0.1.0-rc.7",
                             "@deepseek-ai/dsh-tools":  "0.1.0-rc.7"

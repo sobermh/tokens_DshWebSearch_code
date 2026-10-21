@@ -263,6 +263,284 @@ export const installSettingsSection = legacy
     }
     : undefined;`;
 
+// HOST-003 and HOST-004 both boot the Harness in source mode, so they share
+// one config and take the spec path from the environment. Unlike the suite
+// above they want the host's own dsh-settings, not the Desktop compat shim:
+// they assert the DSH 0.2 chain itself, where the helpers are gone.
+const HOST_CONTRACT_CONFIG_SOURCE = `import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+const outerRoot = path.resolve(process.env.TOKENS_OUTER_ROOT ?? "");
+const harnessRoot = path.join(outerRoot, "desktop", "deepseek-harness");
+const pluginRoot = process.env.TOKENS_WEB_SEARCH_ROOT;
+const spec = path.resolve(process.env.TOKENS_HOST_SPEC).replaceAll("\\\\", "/");
+const { default: tsconfigPaths } = await import(pathToFileURL(path.join(
+  harnessRoot,
+  "node_modules",
+  "vite-tsconfig-paths",
+  "dist",
+  "index.js",
+)));
+const { standardDecoratorPlugin } = await import(pathToFileURL(path.join(harnessRoot, "vitest.shared.ts")));
+
+export default {
+  root: harnessRoot,
+  cacheDir: fileURLToPath(new URL(".vite-cache", import.meta.url)),
+  plugins: [
+    tsconfigPaths({ projects: [path.join(harnessRoot, "tsconfig.base.json")] }),
+    standardDecoratorPlugin(),
+  ],
+  resolve: {
+    alias: {
+      // The plugin exactly as it ships; every @deepseek-ai/* import it makes
+      // resolves to this host's own source, with no shim in between.
+      "@tokens-web-search/plugin": path.join(pluginRoot, "lib", "index.js"),
+      "@deepseek-ai/cordis": path.join(harnessRoot, "vendor", "cordis", "src", "index.ts"),
+      "@deepseek-ai/schemastery": path.join(harnessRoot, "vendor", "schemastery", "src", "index.ts"),
+      // The specs live outside the Harness root, so its tsconfig paths do not
+      // reach them; name the three packages they import themselves.
+      "@deepseek-ai/dsh-app-boot": path.join(harnessRoot, "packages", "boot", "app-boot", "src", "index.ts"),
+      "@deepseek-ai/dsh-config-editor": path.join(harnessRoot, "packages", "boot", "config-editor", "src", "index.ts"),
+      "@deepseek-ai/dsh-settings": path.join(harnessRoot, "packages", "settings", "settings", "src", "index.ts"),
+    },
+  },
+  test: {
+    include: [spec],
+    environment: "node",
+    pool: "forks",
+    testTimeout: 60_000,
+  },
+};`;
+// HOST-003 fixture: the DSH 0.2 settings chain on the real host, end to end --
+// a form derived from this plugin's volatile Config, writes that reach the
+// profile patch file, and the plugin's own loopback bridge served against the
+// real settings service. Modelled on the Harness' own
+// packages/settings/settings/tests/configuration-fixture.ts.
+const HOST_SETTINGS_SPEC_SOURCE = `import http from "node:http";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { describe, expect, it, onTestFinished } from "vitest";
+import { boot, initProfile, readProfilePatches } from "@deepseek-ai/dsh-app-boot";
+import ConfigEditor from "@deepseek-ai/dsh-config-editor";
+import Settings from "@deepseek-ai/dsh-settings";
+import * as WebSearchPlugin from "@tokens-web-search/plugin";
+
+// Deliberately not "free-search": the bridge has to rename the profile entry
+// id to its own namespace, so the two must differ for the rename to be tested.
+const ENTRY_ID = "tokens-web-search";
+const FIBER_ACTIVE = 2; // FiberState.ACTIVE, vendor/cordis/src/fiber.ts
+
+async function fixture() {
+    const home = realpathSync(mkdtempSync(join(tmpdir(), "host-settings-")));
+    const dir = join(home, "profiles", "test");
+    onTestFinished(() => { rmSync(home, { recursive: true, force: true }); });
+    initProfile(dir, ["test-bundle"]);
+    const bundle = join(dir, "node_modules", "test-bundle");
+    mkdirSync(bundle, { recursive: true });
+    writeFileSync(join(home, "package.json"), '{"name":"test-installation"}');
+    writeFileSync(join(bundle, "package.json"), JSON.stringify({
+        name: "test-bundle", version: "1.0.0", dsh: { bundle: { patch: "cordis.patch.yml" } },
+    }));
+    writeFileSync(join(bundle, "cordis.patch.yml"), JSON.stringify([{ insert: [
+        { id: "config-editor", name: "cordis:editor" },
+        { id: "settings", name: "cordis:settings" },
+        { id: ENTRY_ID, name: "cordis:web-search", config: { provider: "bing", cache: false, cacheTtl: 1, platforms: [] } },
+    ] }]));
+    writeFileSync(join(dir, "cordis.yml"), "[]");
+    const profile = {
+        name: "test", startedBundles: ["test-bundle"], dir, patchPath: join(dir, "cordis.patch.yml"),
+        installAnchor: join(home, "package.json"), cwd: home, home, overlays: [], telemetryDisabledEnv: undefined,
+    };
+    const routes = [];
+    const ctx = await boot("test", join(dir, "cordis.yml"), readProfilePatches("test", profile), (ctx) => {
+        ctx.provide("profileContext", profile);
+        ctx.provide("appReady", { onReady: (listener) => { listener(); return () => {}; } });
+        // The two services this plugin needs that are not on the settings path.
+        ctx.provide("web", { registerSearchProvider: () => () => {} });
+        ctx.provide("webServer", { register: (route) => { routes.push(route); return () => {}; } });
+        Object.assign(ctx.loader.builtins, {
+            editor: ConfigEditor, settings: Settings, "web-search": WebSearchPlugin,
+        });
+    });
+    onTestFinished(async () => { await ctx.fiber.dispose(); });
+    return { ctx, profile, routes };
+}
+
+function entryFiber(ctx) {
+    return ctx.configEditor.entries().find((row) => row.options.id === ENTRY_ID)?.fiber;
+}
+
+async function post(port, requestPath, body) {
+    const response = await fetch("http://127.0.0.1:" + port + requestPath, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body ?? {}),
+    });
+    return { status: response.status, body: await response.json() };
+}
+
+describe("real host settings contract for tokens-dsh-web-search", () => {
+    it("derives a settings form from the plugin's volatile Config", async () => {
+        // Pin the generation these assertions describe: DSH 0.2 dropped
+        // installSection together with the two section helpers. HOST-001 ties
+        // that to the product pin; here a 0.1 host must fail, not pass quietly.
+        expect(typeof Settings.prototype.installSection).not.toBe("function");
+        const { ctx } = await fixture();
+        expect(entryFiber(ctx)?.state).toBe(FIBER_ACTIVE);
+        const descriptors = ctx.settings.describe({ redactSecrets: true });
+        const form = descriptors.find((row) => String(row.ns) === ENTRY_ID);
+        expect(form).toBeDefined();
+        const fields = Object.keys(form.schema.refs[String(form.schema.uid)].dict);
+        // Every field the settings page has to show must survive the projection.
+        for (const field of ["provider", "bingMarket", "cache", "cacheTtl", "platforms", "tavilyApiKey"]) {
+            expect(fields).toContain(field);
+        }
+        expect(form.value.provider).toBe("bing");
+        expect(form.value.cacheTtl).toBe(1);
+        expect(form.applies).toBe("live");
+    });
+
+    it("writes through settings.update and notifies the plugin fiber", async () => {
+        const { ctx, profile } = await fixture();
+        const fiber = entryFiber(ctx);
+        const seen = [];
+        fiber.ctx.on("loader/volatile-update", (paths) => { seen.push(paths); });
+        const before = ctx.settings.describe().find((row) => String(row.ns) === ENTRY_ID);
+
+        await ctx.settings.update(ENTRY_ID, { provider: "ddg", cacheTtl: 4 }, before.revision);
+
+        const after = ctx.settings.describe().find((row) => String(row.ns) === ENTRY_ID);
+        expect(after.value.provider).toBe("ddg");
+        expect(after.value.cacheTtl).toBe(4);
+        // The live Config reference the plugin keeps must show the new value;
+        // lib/index.js reads it exactly this way (config?.get?.() ?? config).
+        expect((fiber.config.get?.() ?? fiber.config).provider).toBe("ddg");
+        expect(seen.length).toBeGreaterThan(0);
+        // And it has to be durable, not just in memory.
+        expect(readFileSync(profile.patchPath, "utf8")).toContain("ddg");
+    });
+
+    it("serves the plugin's own settings bridge against the real settings service", async () => {
+        const { ctx, routes } = await fixture();
+        const describeRoute = routes.find((route) => route.path.endsWith("/describe"));
+        const mutateRoute = routes.find((route) => route.path.endsWith("/mutate"));
+        expect(describeRoute).toBeDefined();
+        expect(mutateRoute).toBeDefined();
+        const server = http.createServer((req, res) => {
+            const pathname = new URL(req.url, "http://127.0.0.1").pathname;
+            const route = routes.find((candidate) => candidate.path === pathname);
+            if (route === undefined) { res.writeHead(404); res.end(); return; }
+            void route.handler(req, res);
+        });
+        await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+        onTestFinished(() => new Promise((resolve) => server.close(resolve)));
+        const { port } = server.address();
+        try {
+            const described = await post(port, describeRoute.path, {});
+            expect(described.status).toBe(200);
+            expect(described.body.ok).toBe(true);
+            expect(described.body.value.writable).toBe(true);
+            // The bridge renames the profile entry id to its stable namespace.
+            expect(described.body.value.namespaces.map((item) => item.ns)).toEqual(["free-search"]);
+            const view = described.body.value.namespaces[0];
+            expect(view.value.provider).toBe("bing");
+
+            const mutated = await post(port, mutateRoute.path, {
+                ns: "free-search",
+                expectedRevision: view.revision,
+                ops: [
+                    { op: "set", path: ["provider"], value: "searxng" },
+                    { op: "set", path: ["tavilyApiKey"], value: "probe-secret-value" },
+                ],
+            });
+            expect(mutated.status).toBe(200);
+            expect(mutated.body.ok).toBe(true);
+            expect(mutated.body.value.ns).toBe("free-search");
+            expect(mutated.body.value.value.provider).toBe("searxng");
+            expect(ctx.settings.describe().find((row) => String(row.ns) === ENTRY_ID).value.provider).toBe("searxng");
+            // Secrets must stay redacted on the way out.
+            expect(JSON.stringify(mutated.body)).not.toContain("probe-secret-value");
+            expect(mutated.body.value.secrets.some((secret) => secret.path.join(".") === "tavilyApiKey" && secret.set)).toBe(true);
+        } finally {
+            server.closeAllConnections?.();
+        }
+    });
+});`;
+// HOST-004 fixture: the host's own gate decides whether this plugin's dsh
+// peers let it load. The evaluator takes the runtime version as an argument,
+// so one real host returns the verdict for every runtime the product ships --
+// no need for a staged host per line, and no risk of one having rotted.
+const HOST_PEER_SPEC_SOURCE = `import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+import { evaluatePluginCompatibility } from "@deepseek-ai/dsh-app-boot";
+
+// Every dsh this plugin claims, oldest first, then the first runtime its upper
+// bound has to refuse. 0.3.0-rc.1 is the one that matters: semver orders a
+// prerelease before its release, so an upper bound without -0 would admit it.
+const SUPPORTED = ["0.1.5-rc.2", "0.2.0-rc.2", "0.2.1-rc.2"];
+const REFUSED = "0.3.0-rc.1";
+
+const manifest = () => JSON.parse(readFileSync(join(process.env.TOKENS_WEB_SEARCH_ROOT, "package.json"), "utf8"));
+const dshPeers = (pkg) => Object.entries(pkg.peerDependencies ?? {})
+    .filter(([name]) => name === "@deepseek-ai/dsh" || name.startsWith("@deepseek-ai/dsh-"));
+
+describe("real host dsh peer gate for tokens-dsh-web-search", () => {
+    it("declares every dsh peer as a two-sided optional range", () => {
+        const pkg = manifest();
+        const peers = dshPeers(pkg);
+        expect(peers.length).toBeGreaterThan(0);
+        for (const [name, range] of peers) {
+            const [lower, upper, ...rest] = range.split(" ");
+            expect(rest).toEqual([]);
+            // A lower bound on its own admits every future major unseen.
+            expect(lower.startsWith(">=")).toBe(true);
+            // The upper bound needs -0, or that major's prereleases slip in.
+            expect(upper?.startsWith("<")).toBe(true);
+            expect(upper?.endsWith("-0")).toBe(true);
+            // optional keeps npm and pnpm from resolving a second physical copy
+            // of the runtime; the host reads the range either way.
+            expect(pkg.peerDependenciesMeta?.[name]?.optional).toBe(true);
+        }
+        // An engines.dsh range would decide alone on 0.2.1 and be ignored on
+        // 0.2.0, so the two lines would disagree about the same plugin.
+        expect(pkg.engines?.dsh).toBeUndefined();
+    });
+
+    it("admits this plugin on every runtime it claims and refuses the next major", () => {
+        const pkg = manifest();
+        for (const runtime of SUPPORTED) {
+            expect(evaluatePluginCompatibility(pkg, {}, runtime)).toBeUndefined();
+        }
+        const issue = evaluatePluginCompatibility(pkg, {}, REFUSED);
+        expect(issue?.runtimeVersion).toBe(REFUSED);
+        expect(Object.keys(issue.requirements).sort()).toEqual(dshPeers(pkg).map(([name]) => name).sort());
+        expect(issue.exempted).toBe(false);
+    });
+
+    it("still reports an unsatisfiable peer, so a clean verdict is not an idle evaluator", () => {
+        const pkg = manifest();
+        // The evaluator returns undefined both for "every range is satisfied"
+        // and for "no dsh peer at all". A peer no runtime can satisfy separates
+        // the two and proves the ranges above were really compared.
+        const probe = { ...pkg, peerDependencies: { ...pkg.peerDependencies, "@deepseek-ai/dsh-probe": ">=99.0.0" } };
+        for (const runtime of [...SUPPORTED, REFUSED]) {
+            expect(evaluatePluginCompatibility(probe, {}, runtime)?.requirements["@deepseek-ai/dsh-probe"]).toBe(">=99.0.0");
+        }
+        // And a manifest with no dsh peer left is unjudged, not approved.
+        expect(evaluatePluginCompatibility({ ...pkg, peerDependencies: {} }, {}, REFUSED)).toBeUndefined();
+    });
+});`;
+
+// Cases that only the host-integration suite can execute; --standalone skips
+// that suite, so these are reported as not executed instead of missing.
+const HOST_MAPPINGS = new Set([
+  "real host tool-web executes this plugin provider end to end",
+  "real host derives this plugin settings form and persists its writes",
+  "real host peer gate admits this plugin on every runtime it claims",
+].map((name) => "test/run-test-cases.mjs :: " + name));
+
 // Each suite gets its own Node process to isolate fetch mocks and lifecycle hooks.
 const testSuites = {
   "client-command": registerClientCommandTests,
@@ -473,11 +751,10 @@ for (const suite of suiteNames) {
 }
 const failures = [];
 const deferredCases = [];
-const hostMapping = "test/run-test-cases.mjs :: real host tool-web executes this plugin provider end to end";
 
 for (const entry of cases) {
   const mappings = entry.对应测试.split(/\r?\n| \| /).map((value) => value.trim()).filter(Boolean);
-  if (standalone && mappings.includes(hostMapping)) {
+  if (standalone && mappings.some((mapping) => HOST_MAPPINGS.has(mapping))) {
     deferredCases.push(entry.用例编号);
     continue;
   }
@@ -1305,26 +1582,46 @@ const hostNode = process.env.TOKENS_HOST_NODE ? path.resolve(process.env.TOKENS_
 const missingHost = !outerRoot
   ? "TOKENS_OUTER_ROOT or --outer-root is required for host integration"
   : !existsSync(vitest) ? `host Vitest dependency is missing or its link is broken: ${vitest}` : false;
-test("real host tool-web executes this plugin provider end to end", {
-  skip: missingHost,
-}, async () => {
+
+// Source-mode host integration needs files for Vite; each contract runs in its
+// own temporary directory, written for that run and removed afterwards.
+async function runHostSpec(name, specSource, configSource, extras = {}) {
   const directory = await mkdtemp(path.join(tmpdir(), "tokens-web-search-integration-"));
   try {
-    // Source-mode host integration needs files for Vite; these exist only for this run.
-    const spec = path.join(directory, "host-runtime.spec.mjs");
+    const spec = path.join(directory, name);
     const config = path.join(directory, "host-vitest.config.mjs");
-    await writeFile(spec, HOST_SPEC_SOURCE, "utf8");
-    await writeFile(config, HOST_CONFIG_SOURCE, "utf8");
-    await writeFile(path.join(directory, "host-settings-compat.mjs"), HOST_SETTINGS_SOURCE, "utf8");
+    await writeFile(spec, specSource, "utf8");
+    await writeFile(config, configSource, "utf8");
+    for (const [file, contents] of Object.entries(extras)) {
+      await writeFile(path.join(directory, file), contents, "utf8");
+    }
     const result = spawnSync(hostNode, [vitest, "run", spec, "--config", config, "--reporter=dot"], {
       cwd: path.join(outerRoot, "desktop", "deepseek-harness"),
-      env: { ...process.env, TOKENS_OUTER_ROOT: outerRoot, TOKENS_WEB_SEARCH_ROOT: root },
-      encoding: "utf8", timeout: 60_000, maxBuffer: 8 * 1024 * 1024,
+      env: { ...process.env, TOKENS_OUTER_ROOT: outerRoot, TOKENS_WEB_SEARCH_ROOT: root, TOKENS_HOST_SPEC: spec },
+      encoding: "utf8", timeout: 180_000, maxBuffer: 8 * 1024 * 1024,
     });
     assert.equal(result.status, 0, String(result.stdout) + "\n" + String(result.stderr));
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+}
+
+test("real host tool-web executes this plugin provider end to end", {
+  skip: missingHost,
+}, async () => {
+  await runHostSpec("host-runtime.spec.mjs", HOST_SPEC_SOURCE, HOST_CONFIG_SOURCE, {
+    "host-settings-compat.mjs": HOST_SETTINGS_SOURCE,
+  });
+});
+test("real host derives this plugin settings form and persists its writes", {
+  skip: missingHost,
+}, async () => {
+  await runHostSpec("host-settings.spec.mjs", HOST_SETTINGS_SPEC_SOURCE, HOST_CONTRACT_CONFIG_SOURCE);
+});
+test("real host peer gate admits this plugin on every runtime it claims", {
+  skip: missingHost,
+}, async () => {
+  await runHostSpec("host-peer.spec.mjs", HOST_PEER_SPEC_SOURCE, HOST_CONTRACT_CONFIG_SOURCE);
 });
 }
 
