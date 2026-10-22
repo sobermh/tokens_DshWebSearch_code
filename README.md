@@ -37,10 +37,28 @@ dsh plugin --profile desktop add file:C:\path\to\tokens_DshWebSearch_code
 pnpm install
 pnpm test
 pnpm test:cases
+pnpm run check:host   # 真实宿主契约，需要 DSH_HOST_ROOT
 node --check lib/index.js
 node --check lib/client.js
 node --check lib/hedged-race.js
 ```
+
+### 真实宿主契约（HOST-005…022）
+
+`pnpm run check:host` 对一个 staged 宿主把插件用到的每一个宿主接口各真调一次，
+宿主侧全程不打桩。它只认一个环境变量：
+
+```powershell
+$env:DSH_HOST_ROOT = 'C:\path\to\TokensCowork\.build\desktop\dsh-plugin-desktop'
+pnpm run check:host
+```
+
+每条 `HOST-nnn` 打一行 `PASS` / `FAIL` / `NOT EXECUTED`。没有 `DSH_HOST_ROOT` 时全部报
+未执行且退出码非 0——不会把「什么都没跑」当成通过。本地要一次跑多个宿主，用
+`DSH_HOST_ROOTS` 传分号分隔的列表（产品门禁不传这个）。
+接口 ↔ 用例的逐条对照、模拟边界和未执行矩阵见
+[`docs/host-interfaces.md`](docs/host-interfaces.md)；
+`scripts/verify-host-contract-mutations.mjs` 用变异验证证明这些用例不是空转。
 
 完整功能测试用例统一维护在 [`test/test_cases.csv`](test/test_cases.csv)。`pnpm test:cases`
 会校验 CSV 和测试映射，执行全部用例，并在存在失败、跳过或未完成用例时返回非零。
@@ -54,11 +72,10 @@ CI 使用 `pnpm test -- --standalone` 运行独立回归；该模式只报告独
 pnpm test:cases -- --outer-root C:\path\to\TokensCowork
 ```
 
-宿主链路运行真实 Cordis、`dsh-web`、`tool-web`、`commandUi` 和 locale，替换网络与会话等外围服务；未提供可用外层仓库时，
-对应测试会标记为未完成而不是通过。另有两条常驻契约用例也只在真实宿主上跑：在真实 `app-boot` 上由 volatile Config
-派生设置表单、`settings.update` 落盘并通知插件、插件自己的桥接完成命名空间映射（HOST-003），以及用宿主自己的
-`evaluatePluginCompatibility` 核对 `peerDependencies` 区间在各运行时的放行与拦截，并用一条无法满足的假 peer
-做反向对照（HOST-004）。
+这条源码态链路（HOST-001…004）运行真实 Cordis、`dsh-web`、`tool-web`、`commandUi` 和 locale，替换网络与会话等外围服务；
+未提供可用外层仓库时，对应测试会标记为未完成而不是通过。它需要外层检出自己的 `node_modules` 装好且是当前的，
+所以不从 `DSH_HOST_ROOT` 推导——`check:host` 不跑它，只在报告里单列为未执行并指向覆盖同一批接口的 staged 宿主用例。
+客户端 `commandUi` / locale 的真实宿主覆盖只在这条路上（HOST-002）。
 测试组加载失败时，执行器会按组报告原始错误，不把 Node 的文件级失败误报为测试名称重复；
 真实重名仍会导致非零退出，但不会中断后续测试组的结果收集。
 移动仓库目录后，旧 `node_modules` 的绝对链接可能失效，需在插件和宿主各自目录按锁文件重新安装依赖。

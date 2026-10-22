@@ -533,13 +533,69 @@ describe("real host dsh peer gate for tokens-dsh-web-search", () => {
     });
 });`;
 
-// Cases that only the host-integration suite can execute; --standalone skips
-// that suite, so these are reported as not executed instead of missing.
-const HOST_MAPPINGS = new Set([
-  "real host tool-web executes this plugin provider end to end",
-  "real host derives this plugin settings form and persists its writes",
-  "real host peer gate admits this plugin on every runtime it claims",
-].map((name) => "test/run-test-cases.mjs :: " + name));
+// Suites that can only run with a host; --standalone skips them, so their cases
+// are reported as not executed instead of missing. Every case they carry is
+// numbered HOST-nnn, which is also what `--host-contracts` selects.
+const HOST_SUITES = new Set(["host-contract", "host-integration"]);
+const HOST_CASE_ID = /^HOST-\d+$/;
+// A case whose only reason for not running is the host generation is listed on
+// its own and does not fail the gate; anything else -- no host, a broken link,
+// an unexplained skip -- does. Not executed can never pass unnoticed.
+const HOST_LINE_SKIP = "NOT EXECUTED on this host line: ";
+const HOST_MISSING_SKIP = "NOT EXECUTED without a host: ";
+
+const CSV_COLUMNS = [
+  "用例编号", "所属模块", "用例标题", "前置条件", "测试数据",
+  "操作步骤", "预期结果", "优先级", "自动化状态", "对应测试",
+];
+
+function parseCsv(input) {
+  const text = input.replace(/^﻿/, "");
+  const rows = [];
+  let row = [];
+  let field = "";
+  let quoted = false;
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (quoted) {
+      if (char === '"' && text[index + 1] === '"') {
+        field += '"';
+        index += 1;
+      } else if (char === '"') {
+        quoted = false;
+      } else {
+        field += char;
+      }
+      continue;
+    }
+    if (char === '"') {
+      quoted = true;
+    } else if (char === ",") {
+      row.push(field);
+      field = "";
+    } else if (char === "\n") {
+      row.push(field.replace(/\r$/, ""));
+      if (row.some((value) => value.length > 0)) rows.push(row);
+      row = [];
+      field = "";
+    } else {
+      field += char;
+    }
+  }
+  if (quoted) throw new Error("CSV contains an unterminated quoted field");
+  if (field.length > 0 || row.length > 0) {
+    row.push(field.replace(/\r$/, ""));
+    rows.push(row);
+  }
+  return rows;
+}
+
+async function readCaseRows() {
+  const parsed = parseCsv(await readFile(path.join(root, "test", "test_cases.csv"), "utf8"));
+  return parsed.slice(1)
+    .filter((values) => values.length === CSV_COLUMNS.length)
+    .map((values) => Object.fromEntries(CSV_COLUMNS.map((column, index) => [column, values[index]])));
+}
 
 // Each suite gets its own Node process to isolate fetch mocks and lifecycle hooks.
 const testSuites = {
@@ -548,6 +604,7 @@ const testSuites = {
   "engine-adapters": registerEngineAdaptersTests,
   "fetch-cancel": registerFetchCancelTests,
   "hedged-race": registerHedgedRaceTests,
+  "host-contract": registerHostContractTests,
   "host-integration": registerHostIntegrationTests,
   "package-contract": registerPackageContractTests,
   "platform-adapters": registerPlatformAdaptersTests,
@@ -560,6 +617,8 @@ const worker = process.env.TOKENS_WEB_SEARCH_TEST_SUITE;
 if (worker) {
   if (!Object.hasOwn(testSuites, worker)) throw new Error("unknown test suite: " + worker);
   await testSuites[worker]();
+} else if (process.argv.includes("--host-contracts")) {
+  await executeHostContracts();
 } else {
   await executeCases();
 }
@@ -656,52 +715,8 @@ if (hostNodeIndex >= 0) {
   }
   process.env.TOKENS_HOST_NODE = path.resolve(value);
 }
-const columns = [
-  "用例编号", "所属模块", "用例标题", "前置条件", "测试数据",
-  "操作步骤", "预期结果", "优先级", "自动化状态", "对应测试",
-];
+const columns = CSV_COLUMNS;
 const allowedStatuses = new Set(["已自动化", "部分自动化", "待自动化", "人工验收"]);
-
-function parseCsv(input) {
-  const text = input.replace(/^\uFEFF/, "");
-  const rows = [];
-  let row = [];
-  let field = "";
-  let quoted = false;
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index];
-    if (quoted) {
-      if (char === '"' && text[index + 1] === '"') {
-        field += '"';
-        index += 1;
-      } else if (char === '"') {
-        quoted = false;
-      } else {
-        field += char;
-      }
-      continue;
-    }
-    if (char === '"') {
-      quoted = true;
-    } else if (char === ",") {
-      row.push(field);
-      field = "";
-    } else if (char === "\n") {
-      row.push(field.replace(/\r$/, ""));
-      if (row.some((value) => value.length > 0)) rows.push(row);
-      row = [];
-      field = "";
-    } else {
-      field += char;
-    }
-  }
-  if (quoted) throw new Error("CSV contains an unterminated quoted field");
-  if (field.length > 0 || row.length > 0) {
-    row.push(field.replace(/\r$/, ""));
-    rows.push(row);
-  }
-  return rows;
-}
 
 function fail(message) {
   console.error(`INCOMPLETE\tCSV\t${message}`);
@@ -735,7 +750,7 @@ for (const [index, values] of parsed.slice(1).entries()) {
 }
 if (process.exitCode) process.exit();
 
-const suiteNames = Object.keys(testSuites).filter((suite) => !standalone || suite !== "host-integration");
+const suiteNames = Object.keys(testSuites).filter((suite) => !standalone || !HOST_SUITES.has(suite));
 const runnerPath = fileURLToPath(import.meta.url);
 const testResults = new Map();
 const executionIssues = [];
@@ -754,7 +769,7 @@ const deferredCases = [];
 
 for (const entry of cases) {
   const mappings = entry.对应测试.split(/\r?\n| \| /).map((value) => value.trim()).filter(Boolean);
-  if (standalone && mappings.some((mapping) => HOST_MAPPINGS.has(mapping))) {
+  if (standalone && HOST_CASE_ID.test(entry.用例编号)) {
     deferredCases.push(entry.用例编号);
     continue;
   }
@@ -788,7 +803,9 @@ for (const issue of executionIssues) {
 
 if (failures.length === 0) {
   if (standalone) {
-    for (const id of deferredCases) console.log(`INCOMPLETE\t${id}\tnot executed in standalone mode; use --outer-root for full host verification`);
+    for (const id of deferredCases) {
+      console.log(`INCOMPLETE\t${id}\tnot executed in standalone mode; run \`npm run check:host\` with DSH_HOST_ROOT (HOST-005…022) or pass --outer-root (HOST-001…004)`);
+    }
     console.log(`${cases.length - deferredCases.length} standalone cases passed; ${deferredCases.length} host cases not executed.`);
   } else {
     console.log(`All ${cases.length} cases passed.`);
@@ -800,6 +817,95 @@ if (failures.length === 0) {
   process.exitCode = 1;
 }
 }
+
+/**
+ * `npm run check:host`: run only the suites that need a real host and print one
+ * line per HOST-nnn case. The product gate reads this output, so a case that did
+ * not run is always said out loud and never counted as a pass.
+ */
+async function executeHostContracts() {
+  const runnerPath = fileURLToPath(import.meta.url);
+  const suites = [...HOST_SUITES];
+  const testResults = new Map();
+  const executionIssues = [];
+  for (const suite of suites) {
+    const execution = spawnSync(process.execPath, [...suiteRunnerArgs, runnerPath], {
+      cwd: root,
+      env: { ...process.env, TOKENS_WEB_SEARCH_TEST_SUITE: suite },
+      encoding: "utf8",
+      maxBuffer: 16 * 1024 * 1024,
+    });
+    collectSuiteExecution(suite, runnerPath, execution, testResults, executionIssues);
+  }
+
+  const rows = (await readCaseRows()).filter((entry) => HOST_CASE_ID.test(entry.用例编号));
+  const report = [];
+  for (const entry of rows) {
+    const mappings = entry.对应测试.split(/\r?\n| \| /).map((value) => value.trim()).filter(Boolean);
+    const results = mappings.map((mapping) => ({ mapping, result: testResults.get(mapping) }));
+    const missing = results.find(({ result }) => result === undefined);
+    const failed = results.find(({ result }) => result?.status === "failed");
+    const skipped = results.find(({ result }) => result?.status === "incomplete");
+    if (missing) {
+      report.push({ status: "FAIL", entry, reason: `mapped test not found: ${missing.mapping}` });
+    } else if (failed) {
+      report.push({ status: "FAIL", entry, reason: `${failed.mapping}: ${failed.result.reason}` });
+    } else if (skipped) {
+      const reason = skipped.result.reason || "no reason given";
+      // Only a host-generation reason is tolerated. Everything else -- above all
+      // a missing host -- still reads NOT EXECUTED but fails the gate, so it can
+      // never pass by running nothing.
+      report.push({ status: "NOT EXECUTED", entry, reason, fatal: !reason.startsWith(HOST_LINE_SKIP) });
+    } else {
+      report.push({ status: "PASS", entry, reason: "" });
+    }
+  }
+
+  const label = process.env.TOKENS_HOST_ROOT ?? "(no DSH_HOST_ROOT)";
+  console.log(`host contracts for ${label}`);
+  for (const line of report) {
+    console.log([line.status, line.entry.用例编号, line.entry.用例标题, line.reason].join("\t").trimEnd());
+  }
+  for (const issue of executionIssues) console.error(`FAIL\tTEST-RUNNER\t${issue}`);
+  const counted = (status) => report.filter((line) => line.status === status).length;
+  const fatal = report.filter((line) => line.fatal).length;
+  console.log(
+    `${counted("PASS")} passed, ${counted("FAIL")} failed, ${counted("NOT EXECUTED")} not executed`
+    + ` (${fatal} of them unaccounted for) of ${report.length} host cases.`,
+  );
+  if (rows.length === 0) {
+    console.error("FAIL\tCSV\tno HOST-nnn case is listed in test/test_cases.csv");
+    process.exitCode = 1;
+  }
+  if (counted("FAIL") > 0 || fatal > 0 || executionIssues.length > 0) process.exitCode = 1;
+}
+
+async function registerHostContractTests() {
+  const { register } = await import("node:module");
+  const { default: test } = await import("node:test");
+  const hostRoot = process.env.TOKENS_HOST_ROOT
+    ? path.resolve(process.env.TOKENS_HOST_ROOT)
+    : undefined;
+  // Nothing in this repository installs the dsh runtime, so the plugin's own
+  // imports are pointed at the staged host before it is loaded. Registering the
+  // hook without a host would make every @deepseek-ai import fail obscurely, so
+  // the cases report themselves as not executed instead.
+  if (hostRoot !== undefined) {
+    register(new URL("host-contract/host-modules.mjs", import.meta.url), { data: { hostRoot } });
+  }
+  const live = await import("./host-contract/live-host.mjs");
+  const { HOST_CONTRACT_CASES } = await import("./host-contract/cases.mjs");
+  const absent = live.missingHost();
+  for (const hostCase of HOST_CONTRACT_CASES) {
+    let skip = absent ? HOST_MISSING_SKIP + absent : false;
+    if (skip === false && hostCase.skip !== undefined) {
+      const reason = await hostCase.skip();
+      if (reason) skip = HOST_LINE_SKIP + reason;
+    }
+    test(`${hostCase.id} ${hostCase.title}`, { skip }, () => hostCase.run());
+  }
+}
+
 async function registerRunnerContractTests() {
 const { strict: assert } = await import("node:assert");
 const { mkdtemp, writeFile, rm } = await import("node:fs/promises");
@@ -1579,9 +1685,16 @@ const { default: test } = await import("node:test");
 const outerRoot = process.env.TOKENS_OUTER_ROOT ? path.resolve(process.env.TOKENS_OUTER_ROOT) : undefined;
 const vitest = outerRoot ? path.join(outerRoot, "desktop", "deepseek-harness", "node_modules", "vitest", "vitest.mjs") : "";
 const hostNode = process.env.TOKENS_HOST_NODE ? path.resolve(process.env.TOKENS_HOST_NODE) : process.execPath;
+// These three run the Harness in source mode, so they need the outer product
+// checkout, not a staged host. `check:host` derives it from DSH_HOST_ROOT when
+// it is there and tolerates its absence: HOST-005…022 reach the same host
+// interfaces through the staged runtime the product actually ships.
+const SOURCE_MODE_FALLBACK = "; the staged-host contracts HOST-005…022 cover the same interfaces";
 const missingHost = !outerRoot
-  ? "TOKENS_OUTER_ROOT or --outer-root is required for host integration"
-  : !existsSync(vitest) ? `host Vitest dependency is missing or its link is broken: ${vitest}` : false;
+  ? `${HOST_LINE_SKIP}no outer product checkout (TOKENS_OUTER_ROOT or --outer-root)${SOURCE_MODE_FALLBACK}`
+  : !existsSync(vitest)
+    ? `${HOST_LINE_SKIP}the outer checkout has no host Vitest at ${vitest}${SOURCE_MODE_FALLBACK}`
+    : false;
 
 // Source-mode host integration needs files for Vite; each contract runs in its
 // own temporary directory, written for that run and removed afterwards.
@@ -1606,19 +1719,19 @@ async function runHostSpec(name, specSource, configSource, extras = {}) {
   }
 }
 
-test("real host tool-web executes this plugin provider end to end", {
+test("HOST-001 real host tool-web executes this plugin provider end to end", {
   skip: missingHost,
 }, async () => {
   await runHostSpec("host-runtime.spec.mjs", HOST_SPEC_SOURCE, HOST_CONFIG_SOURCE, {
     "host-settings-compat.mjs": HOST_SETTINGS_SOURCE,
   });
 });
-test("real host derives this plugin settings form and persists its writes", {
+test("HOST-003 real host derives this plugin settings form and persists its writes", {
   skip: missingHost,
 }, async () => {
   await runHostSpec("host-settings.spec.mjs", HOST_SETTINGS_SPEC_SOURCE, HOST_CONTRACT_CONFIG_SOURCE);
 });
-test("real host peer gate admits this plugin on every runtime it claims", {
+test("HOST-004 real host peer gate admits this plugin on every runtime it claims", {
   skip: missingHost,
 }, async () => {
   await runHostSpec("host-peer.spec.mjs", HOST_PEER_SPEC_SOURCE, HOST_CONTRACT_CONFIG_SOURCE);
@@ -1790,6 +1903,8 @@ const { SettingsConflictError } = await import("@deepseek-ai/dsh-settings");
 const { ALL_ENGINES, apply } = await import("../lib/index.js");
 
 const root = new URL("../", import.meta.url);
+/** The profile entry id the stand-in host uses; the bridge has to rename it. */
+const FAKE_ENTRY_ID = "tokens-web-search";
 
 function bingHtml(count = 1, query = "query") {
   return "x".repeat(600) + Array.from({ length: count }, (_, index) =>
@@ -1826,12 +1941,17 @@ function createHost(overrides = {}, options = {}) {
     effects: [],
     warnings: [],
     credentialCalls: [],
+    volatileListeners: [],
     revision: 1,
     disposed: 0,
   };
   const secretValues = options.secretValues ?? {};
+  // The installed dsh-settings follows the product pin, so this stand-in serves
+  // the DSH 0.2 contract: the host names the namespace after the profile entry
+  // and the plugin's bridge renames it to free-search. The DSH 0.1 contract is
+  // covered against a real 0.1 host by HOST-019, not simulated here.
   const descriptor = () => ({
-    ns: "free-search",
+    ns: FAKE_ENTRY_ID,
     schema: {},
     value: options.descriptorValue ?? { ...config },
     secrets: Object.entries(secretValues).map(([key, value]) => ({ path: [key], set: Boolean(value) })),
@@ -1861,6 +1981,7 @@ function createHost(overrides = {}, options = {}) {
       }
       state.revision += 1;
       state.settingsChanged?.();
+      for (const listener of state.volatileListeners) listener([operations.map((op) => op.path?.[0])]);
     },
   };
   const services = {
@@ -1886,8 +2007,12 @@ function createHost(overrides = {}, options = {}) {
   };
   const enabled = new Set(options.services ?? Object.keys(services));
   const ctx = {
-    fiber: { state: 0 },
+    fiber: { state: 0, entry: { options: { id: FAKE_ENTRY_ID } } },
     logger: { warn: (message) => state.warnings.push(message) },
+    on(event, listener) {
+      if (event === "loader/volatile-update") state.volatileListeners.push(listener);
+      return () => { state.disposed += 1; };
+    },
     get(name) {
       if (name !== "credentials" || !options.credentials) return undefined;
       return {
@@ -1949,10 +2074,16 @@ async function callRoute(route, body, options) {
 }
 
 test("installed DSH contracts load and register provider, tools, routes, and prompt", async () => {
-  const settingsPackage = JSON.parse(await readFile(new URL("node_modules/@deepseek-ai/dsh-settings/package.json", root)));
-  const toolsPackage = JSON.parse(await readFile(new URL("node_modules/@deepseek-ai/dsh-tools/package.json", root)));
-  assert.equal(settingsPackage.version, "0.1.0-rc.7");
-  assert.equal(toolsPackage.version, "0.1.0-rc.7");
+  const manifest = JSON.parse(await readFile(new URL("package.json", root)));
+  // Installed must equal declared, so this suite can never quietly exercise a
+  // settings generation the product does not ship. The declared versions follow
+  // the product pin; HOST-006 is what ties them to a real host.
+  for (const name of ["@deepseek-ai/dsh-settings", "@deepseek-ai/dsh-tools"]) {
+    const installed = JSON.parse(await readFile(new URL(`node_modules/${name}/package.json`, root)));
+    assert.equal(installed.version, manifest.devDependencies[name]);
+  }
+  const { installSettingsSection } = await import("@deepseek-ai/dsh-settings");
+  assert.equal(installSettingsSection, undefined, "the installed dsh-settings is the DSH 0.1 generation");
 
   const host = createHost();
   assert.equal(host.provider.id, "ddg");

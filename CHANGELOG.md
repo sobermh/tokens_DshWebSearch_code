@@ -3,6 +3,40 @@
 本文件记录发布到私有 registry `https://npm.tokensapi.ai/` 的版本。
 0.2.1 之前的细节见 git 历史。
 
+## [0.2.3] - 2026-10-22
+
+### 修复
+
+- **凭据服务里的引擎 Key 曾被静默忽略。** `apply()` 把 `ctx.get("credentials")` 的结果
+  捕获成常量，而 credentials 是可选服务、可能比本插件晚激活；晚一步就永远是 undefined，
+  用户存在宿主凭据服务里的 `TAVILY_API_KEY` / `EXA_API_KEY` 等从此一律读不到，表现是
+  「明明配了 Key 还在走 keyless 额度」。现在每次用到才查。这个缺陷是新增的 HOST-015
+  在真实宿主上抓出来的——用假 credentials 的用例看不出激活顺序。
+
+### 新增
+
+- **真实宿主契约用例 HOST-005…022，命令 `npm run check:host`。** 对 staged 宿主把插件
+  用到的每一个宿主接口各真调一次：Loader 按 `inject` 激活、`web` 接缝按 id 选中 provider、
+  上游 `tool-web` 的 `web_search`、三个工具的裸 JSON Schema 与真实执行、`systemPrompt`
+  分区与刷新、`credentials.resolve`、真实 web server 上的三条桥接路由与同源围栏、
+  0.2 的 volatile 表单与落盘、0.1 的显式设置分区、revision 冲突、peer 门禁、
+  随包客户端模块对真实桥接发真实 HTTP。宿主侧全程不打桩：由宿主自己的 launcher 起一次性
+  profile，服务全是真实实例。接口 ↔ 用例逐条对照见 `docs/host-interfaces.md`。
+  - 门禁只认 `DSH_HOST_ROOT`（staged 宿主的 `dsh-plugin-desktop` 目录）；没有它时每条
+    用例报 `NOT EXECUTED` 且退出码非 0，不会把「什么都没跑」算成通过。
+  - 三个 staged 宿主实测：0.2.1-rc.2 17/17、0.2.0-rc.2 17/17、0.1.5-rc.2 16/16，
+    另有本代宿主没有该接口的用例显式单列为未执行。
+- **空转防护 `scripts/verify-host-contract-mutations.mjs`。** 逐个把被测路径弄坏，要求
+  恰好预期的那几条用例变红。实测 0.2.1 与 0.2.0 各 16/16、0.1.5 14/14 全部命中。
+
+### 变更
+
+- **devDependencies 跟到产品锁定的宿主版本。** `@deepseek-ai/dsh-settings` 与
+  `@deepseek-ai/dsh-tools` 从 `0.1.0-rc.7` 升到 `0.2.1-rc.2`，`@deepseek-ai/schemastery`
+  的范围收到 `^3.18.4`（`Schema.volatile` 的下限）。离线用例因此走 DSH 0.2 设置分支，
+  0.1 分支改由 0.1.5-rc.2 真实宿主上的 HOST-019 覆盖。离线夹具同步改成 0.2 形状，
+  并把「装上的版本必须等于声明的版本」做成断言，避免悄悄测到产品不发的那一代。
+
 ## [0.2.2] - 2026-10-21
 
 ### 变更
@@ -44,4 +78,5 @@
 
 - 搜索引擎的选择仍由插件在引擎不可用时自动回退，不依赖用户在设置界面切换。
 
+[0.2.3]: https://github.com/sobermh/tokens_DshWebSearch_code/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/sobermh/tokens_DshWebSearch_code/compare/v0.2.1...v0.2.2
