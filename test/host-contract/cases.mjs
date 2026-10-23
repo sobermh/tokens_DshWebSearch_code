@@ -35,13 +35,18 @@ import {
   withFetch,
 } from "./live-host.mjs";
 
-/** Every runtime this plugin's dsh peer ranges claim, oldest first. */
-const CLAIMED_RUNTIMES = ["0.1.5-rc.2", "0.2.0-rc.2", "0.2.1-rc.2"];
+/**
+ * Every runtime this plugin's dsh peer ranges claim, oldest first. The upper
+ * bound only guards the next major, so a 0.x minor the product has not shipped
+ * yet is claimed on purpose: version numbers cannot predict compatibility, and
+ * what actually guards an upgrade is the host contract gate below.
+ */
+const CLAIMED_RUNTIMES = ["0.1.5-rc.2", "0.2.0-rc.2", "0.2.1-rc.2", "0.3.0-rc.1"];
 /**
  * The first runtime the upper bound has to refuse. A prerelease sorts before
  * its release, so an upper bound written without `-0` would let this one in.
  */
-const REFUSED_RUNTIME = "0.3.0-rc.1";
+const REFUSED_RUNTIME = "1.0.0-rc.1";
 
 const manifest = () => JSON.parse(readFileSync(path.join(pluginRoot, "package.json"), "utf8"));
 

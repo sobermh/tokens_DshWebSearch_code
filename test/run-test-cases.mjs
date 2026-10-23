@@ -477,10 +477,12 @@ import { describe, expect, it } from "vitest";
 import { evaluatePluginCompatibility } from "@deepseek-ai/dsh-app-boot";
 
 // Every dsh this plugin claims, oldest first, then the first runtime its upper
-// bound has to refuse. 0.3.0-rc.1 is the one that matters: semver orders a
-// prerelease before its release, so an upper bound without -0 would admit it.
-const SUPPORTED = ["0.1.5-rc.2", "0.2.0-rc.2", "0.2.1-rc.2"];
-const REFUSED = "0.3.0-rc.1";
+// bound has to refuse. The upper bound only guards the next major, so a 0.x
+// minor bump is admitted on purpose -- the real guard is the host contract
+// gate, not a version number. 1.0.0-rc.1 is the one that matters: semver orders
+// a prerelease before its release, so an upper bound without -0 would admit it.
+const SUPPORTED = ["0.1.5-rc.2", "0.2.0-rc.2", "0.2.1-rc.2", "0.3.0-rc.1"];
+const REFUSED = "1.0.0-rc.1";
 
 const manifest = () => JSON.parse(readFileSync(join(process.env.TOKENS_WEB_SEARCH_ROOT, "package.json"), "utf8"));
 const dshPeers = (pkg) => Object.entries(pkg.peerDependencies ?? {})
@@ -543,6 +545,89 @@ const HOST_CASE_ID = /^HOST-\d+$/;
 // an unexplained skip -- does. Not executed can never pass unnoticed.
 const HOST_LINE_SKIP = "NOT EXECUTED on this host line: ";
 const HOST_MISSING_SKIP = "NOT EXECUTED without a host: ";
+
+/**
+ * The single verdict for one CSV case, shared by `test:cases` and
+ * `check:host` so the two can never disagree about whether a case ran. The
+ * two entry points word and weigh the verdict differently -- check:host
+ * prints one line per host case, test:cases only reports what went wrong --
+ * but both read "did it run?" from here.
+ *
+ * `kind` is one of:
+ *   passed       every mapped test passed
+ *   missing      a mapped test is not in the results at all
+ *   failed       a mapped test failed
+ *   host-line    skipped, and the reason names the host generation: accounted
+ *                for, listed but not fatal
+ *   unexplained  skipped for any other reason -- no host, a broken link, a
+ *                bare skip -- which always fails the gate
+ */
+function classifyCase(mappings, testResults) {
+  const results = mappings.map((mapping) => ({ mapping, result: testResults.get(mapping) }));
+  const missing = results.find(({ result }) => result === undefined);
+  if (missing) return { kind: "missing", mapping: missing.mapping, reason: "" };
+  const failed = results.find(({ result }) => result.status === "failed");
+  if (failed) return { kind: "failed", mapping: failed.mapping, reason: failed.result.reason || failed.result.status };
+  const skipped = results.find(({ result }) => result.status !== "passed");
+  if (skipped) {
+    const reason = skipped.result.reason || "";
+    return {
+      kind: reason.startsWith(HOST_LINE_SKIP) ? "host-line" : "unexplained",
+      mapping: skipped.mapping,
+      reason,
+    };
+  }
+  return { kind: "passed", mapping: "", reason: "" };
+}
+
+/**
+ * The verdict for a whole `test:cases` run: what went wrong, what was
+ * accounted for as not applicable to the host line this run was given, and --
+ * in standalone mode -- which host cases were deferred. `failures` alone
+ * decides the exit code, so keeping this pure puts the gate's own standard
+ * under test instead of leaving it in the output path (TEST-005).
+ */
+function summarizeCases(cases, testResults, executionIssues, standalone) {
+  const failures = [];
+  const notApplicable = [];
+  const deferredCases = [];
+  for (const entry of cases) {
+    const mappings = entry.对应测试.split(/\r?\n| \| /).map((value) => value.trim()).filter(Boolean);
+    if (standalone && HOST_CASE_ID.test(entry.用例编号)) {
+      deferredCases.push(entry.用例编号);
+      continue;
+    }
+    if (entry.自动化状态 !== "已自动化") {
+      failures.push({ id: entry.用例编号, status: "INCOMPLETE", reason: `automation status is ${entry.自动化状态}` });
+      continue;
+    }
+    if (mappings.length === 0) {
+      failures.push({ id: entry.用例编号, status: "INCOMPLETE", reason: "no mapped test" });
+      continue;
+    }
+    const verdict = classifyCase(mappings, testResults);
+    if (verdict.kind === "missing") {
+      failures.push({ id: entry.用例编号, status: "INCOMPLETE", reason: `mapped test not found: ${verdict.mapping}` });
+    } else if (verdict.kind === "failed") {
+      failures.push({ id: entry.用例编号, status: "FAIL", reason: `${verdict.mapping}: ${verdict.reason}` });
+    } else if (verdict.kind === "host-line") {
+      // Accounted for on exactly the terms `check:host` accounts for it: the
+      // case is listed with its reason and does not fail the gate, because the
+      // host this run was given is not the generation the case is about.
+      notApplicable.push({ id: entry.用例编号, reason: verdict.reason });
+    } else if (verdict.kind === "unexplained") {
+      failures.push({
+        id: entry.用例编号,
+        status: "INCOMPLETE",
+        reason: `${verdict.mapping}: ${verdict.reason || "no reason given"}`,
+      });
+    }
+  }
+  for (const issue of executionIssues) {
+    failures.push({ id: "TEST-RUNNER", status: "INCOMPLETE", reason: issue });
+  }
+  return { failures, notApplicable, deferredCases };
+}
 
 const CSV_COLUMNS = [
   "用例编号", "所属模块", "用例标题", "前置条件", "测试数据",
@@ -764,41 +849,12 @@ for (const suite of suiteNames) {
   });
   collectSuiteExecution(suite, file, execution, testResults, executionIssues);
 }
-const failures = [];
-const deferredCases = [];
+const { failures, notApplicable, deferredCases } = summarizeCases(cases, testResults, executionIssues, standalone);
 
-for (const entry of cases) {
-  const mappings = entry.对应测试.split(/\r?\n| \| /).map((value) => value.trim()).filter(Boolean);
-  if (standalone && HOST_CASE_ID.test(entry.用例编号)) {
-    deferredCases.push(entry.用例编号);
-    continue;
-  }
-  if (entry.自动化状态 !== "已自动化") {
-    failures.push({ id: entry.用例编号, status: "INCOMPLETE", reason: `automation status is ${entry.自动化状态}` });
-    continue;
-  }
-  if (mappings.length === 0) {
-    failures.push({ id: entry.用例编号, status: "INCOMPLETE", reason: "no mapped test" });
-    continue;
-  }
-  const mappedResults = mappings.map((mapping) => ({ mapping, result: testResults.get(mapping) }));
-  const missing = mappedResults.find(({ result }) => result === undefined);
-  if (missing) {
-    failures.push({ id: entry.用例编号, status: "INCOMPLETE", reason: `mapped test not found: ${missing.mapping}` });
-    continue;
-  }
-  const failed = mappedResults.find(({ result }) => result.status !== "passed");
-  if (failed) {
-    failures.push({
-      id: entry.用例编号,
-      status: failed.result.status === "failed" ? "FAIL" : "INCOMPLETE",
-      reason: `${failed.mapping}: ${failed.result.reason || failed.result.status}`,
-    });
-  }
-}
-
-for (const issue of executionIssues) {
-  failures.push({ id: "TEST-RUNNER", status: "INCOMPLETE", reason: issue });
+// Said out loud whether or not anything failed, so a run can never look like
+// it covered a case it skipped.
+for (const line of notApplicable) {
+  console.log(`NOT EXECUTED\t${line.id}\t${line.reason}`);
 }
 
 if (failures.length === 0) {
@@ -807,6 +863,10 @@ if (failures.length === 0) {
       console.log(`INCOMPLETE\t${id}\tnot executed in standalone mode; run \`npm run check:host\` with DSH_HOST_ROOT (HOST-005…022) or pass --outer-root (HOST-001…004)`);
     }
     console.log(`${cases.length - deferredCases.length} standalone cases passed; ${deferredCases.length} host cases not executed.`);
+  } else if (notApplicable.length > 0) {
+    console.log(
+      `${cases.length - notApplicable.length} cases passed; ${notApplicable.length} not executed on this host line.`,
+    );
   } else {
     console.log(`All ${cases.length} cases passed.`);
   }
@@ -842,20 +902,21 @@ async function executeHostContracts() {
   const report = [];
   for (const entry of rows) {
     const mappings = entry.对应测试.split(/\r?\n| \| /).map((value) => value.trim()).filter(Boolean);
-    const results = mappings.map((mapping) => ({ mapping, result: testResults.get(mapping) }));
-    const missing = results.find(({ result }) => result === undefined);
-    const failed = results.find(({ result }) => result?.status === "failed");
-    const skipped = results.find(({ result }) => result?.status === "incomplete");
-    if (missing) {
-      report.push({ status: "FAIL", entry, reason: `mapped test not found: ${missing.mapping}` });
-    } else if (failed) {
-      report.push({ status: "FAIL", entry, reason: `${failed.mapping}: ${failed.result.reason}` });
-    } else if (skipped) {
-      const reason = skipped.result.reason || "no reason given";
+    const verdict = classifyCase(mappings, testResults);
+    if (verdict.kind === "missing") {
+      report.push({ status: "FAIL", entry, reason: `mapped test not found: ${verdict.mapping}` });
+    } else if (verdict.kind === "failed") {
+      report.push({ status: "FAIL", entry, reason: `${verdict.mapping}: ${verdict.reason}` });
+    } else if (verdict.kind === "host-line" || verdict.kind === "unexplained") {
       // Only a host-generation reason is tolerated. Everything else -- above all
       // a missing host -- still reads NOT EXECUTED but fails the gate, so it can
       // never pass by running nothing.
-      report.push({ status: "NOT EXECUTED", entry, reason, fatal: !reason.startsWith(HOST_LINE_SKIP) });
+      report.push({
+        status: "NOT EXECUTED",
+        entry,
+        reason: verdict.reason || "no reason given",
+        fatal: verdict.kind !== "host-line",
+      });
     } else {
       report.push({ status: "PASS", entry, reason: "" });
     }
@@ -992,6 +1053,53 @@ test("runner never reports skipped failed or empty executions as passed", () => 
   collectSuiteExecution("spawn-error", file, { status: null, error: new Error("spawn ENOENT") }, results, issues);
   assert.equal(issues[2], "spawn-error: spawn ENOENT");
   assert.equal(results.size, 2);
+});
+
+test("runner accounts for a host-line skip and still fails on every other kind of skip", async () => {
+  // The real HOST-019 row and its real mapping: it only runs on a DSH 0.1
+  // host, so a run against a 0.2 host must list it as not applicable and stay
+  // green -- the standard `check:host` already applies. Anything else that did
+  // not run, above all a missing host, must still fail.
+  const rows = await readCaseRows();
+  const hostLineCase = rows.find((entry) => entry.用例编号 === "HOST-019");
+  assert.ok(hostLineCase, "HOST-019 must stay in test/test_cases.csv");
+  const [hostLineMapping] = hostLineCase.对应测试.split(/\r?\n| \| /).map((value) => value.trim()).filter(Boolean);
+  assert.ok(hostLineMapping, "HOST-019 must map to a test");
+
+  const passing = { 用例编号: "SYN-001", 自动化状态: "已自动化", 对应测试: mapping("a passing case") };
+  const results = (reason) => new Map([
+    [hostLineMapping, { name: "HOST-019", status: "incomplete", reason }],
+    [mapping("a passing case"), { name: "a passing case", status: "passed", reason: "" }],
+  ]);
+
+  const lineReason = `${HOST_LINE_SKIP}DSH 0.2.1-rc.2 dropped installSettingsSection`;
+  const accounted = summarizeCases([hostLineCase, passing], results(lineReason), [], false);
+  assert.deepEqual(accounted.failures, [], "a host-line skip must not fail the gate");
+  assert.deepEqual(accounted.notApplicable, [{ id: "HOST-019", reason: lineReason }]);
+  // The same verdict feeds check:host, where it is listed and not fatal.
+  assert.equal(classifyCase([hostLineMapping], results(lineReason)).kind, "host-line");
+
+  // No host at all is not an excuse: it stays INCOMPLETE and fails the gate.
+  for (const reason of [`${HOST_MISSING_SKIP}DSH_HOST_ROOT is not set`, "mapped test was skipped", ""]) {
+    const verdict = summarizeCases([hostLineCase, passing], results(reason), [], false);
+    assert.deepEqual(verdict.notApplicable, [], `must not be accounted for: ${reason}`);
+    assert.equal(verdict.failures.length, 1, `must fail the gate: ${reason}`);
+    assert.equal(verdict.failures[0].status, "INCOMPLETE");
+    assert.equal(verdict.failures[0].id, "HOST-019");
+    assert.match(verdict.failures[0].reason, /no reason given|without a host|was skipped/);
+    assert.equal(classifyCase([hostLineMapping], results(reason)).kind, "unexplained");
+  }
+
+  // A failing host case is still a failure, and a host-line skip never hides a
+  // suite that could not run at all.
+  const failed = summarizeCases([hostLineCase, passing], new Map([
+    [hostLineMapping, { name: "HOST-019", status: "failed", reason: "expected a derived form" }],
+    [mapping("a passing case"), { name: "a passing case", status: "passed", reason: "" }],
+  ]), [], false);
+  assert.equal(failed.failures.length, 1);
+  assert.equal(failed.failures[0].status, "FAIL");
+  const withIssue = summarizeCases([hostLineCase, passing], results(lineReason), ["host-contract: exited 1"], false);
+  assert.deepEqual(withIssue.failures, [{ id: "TEST-RUNNER", status: "INCOMPLETE", reason: "host-contract: exited 1" }]);
 });
 }
 async function registerClientCommandTests() {

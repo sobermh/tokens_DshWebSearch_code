@@ -24,6 +24,10 @@ npm test -- --outer-root …/TokensCowork
 **没有 `DSH_HOST_ROOT` 时每条都报 `NOT EXECUTED`，退出码非 0**——门禁不会把「什么都没跑」读成「没问题」。
 只有「本代宿主没有这个接口」这一种未执行理由会被单列而不判失败，其余未执行（包括缺宿主）一律失败。
 
+**`npm run test:cases` 带宿主跑时是同一个口径**（产品门禁第 21 步就是这么跑的）：两条汇总路径
+共用同一个判定函数，带宿主线理由的跳过打一行 `NOT EXECUTED` 且不置退出码，别的未执行仍是
+`INCOMPLETE` 且退出码非 0。不带宿主时所有 `HOST-nnn` 都因为缺宿主而未执行，退出码仍然非 0。
+
 内部映射（门禁不需要知道）：`TOKENS_HOST_ROOT = DSH_HOST_ROOT`。
 `TOKENS_OUTER_ROOT`（HOST-001…004 用的源码态外层检出）**不从 DSH_HOST_ROOT 推导**：
 那条路要外层检出自己的 `node_modules` 装好且是当前的，而主检出的 harness 安装经常过期，

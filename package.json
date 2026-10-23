@@ -59,8 +59,8 @@
                          "@deepseek-ai/schemastery":  "^3.18.4"
                      },
     "peerDependencies":  {
-                             "@deepseek-ai/dsh-settings":  "\u003e=0.1.0-rc.6 \u003c0.3.0-0",
-                             "@deepseek-ai/dsh-tools":  "\u003e=0.1.0-rc.6 \u003c0.3.0-0"
+                             "@deepseek-ai/dsh-settings":  "\u003e=0.1.0-rc.6 \u003c1.0.0-0",
+                             "@deepseek-ai/dsh-tools":  "\u003e=0.1.0-rc.6 \u003c1.0.0-0"
                          },
     "peerDependenciesMeta":  {
                                  "@deepseek-ai/dsh-settings":  {

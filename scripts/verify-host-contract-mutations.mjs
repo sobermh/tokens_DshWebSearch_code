@@ -196,8 +196,8 @@ const MUTATIONS = [
     line: "0.2",
     what: "a dsh peer upper bound loses its -0 and admits the next major's prereleases",
     file: "package.json",
-    from: '"@deepseek-ai/dsh-tools":  "\\u003e=0.1.0-rc.6 \\u003c0.3.0-0"',
-    to: '"@deepseek-ai/dsh-tools":  "\\u003e=0.1.0-rc.6 \\u003c0.3.0"',
+    from: '"@deepseek-ai/dsh-tools":  "\\u003e=0.1.0-rc.6 \\u003c1.0.0-0"',
+    to: '"@deepseek-ai/dsh-tools":  "\\u003e=0.1.0-rc.6 \\u003c1.0.0"',
     expect: ["HOST-021"],
   },
   {
