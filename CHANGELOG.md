@@ -3,6 +3,27 @@
 本文件记录发布到私有 registry `https://npm.tokensapi.ai/` 的版本。
 0.2.1 之前的细节见 git 历史。
 
+## [0.2.4] - 2026-10-23
+
+### 修复
+
+- **带宿主跑 `npm run test:cases` 时，「本宿主线不适用」被记成 INCOMPLETE 并把退出码置 1。**
+  产品 Windows 质量门禁现在用 staging 宿主跑每个内置插件的 `test:cases`，于是 HOST-019
+  （只在 DSH 0.1 上成立的显式设置分区）在 0.2.1-rc.2 上报告未执行——`check:host` 早就把
+  这种带宿主线理由的跳过算作「已交代」，`test:cases` 却一律算未完成，门禁因此红。两条汇总
+  路径现在共用同一个判定函数 `classifyCase`，口径不可能再分叉：理由以
+  `NOT EXECUTED on this host line: ` 开头的跳过被单独列出、不致命；没有宿主、链接坏掉、
+  不给理由的跳过仍然是 INCOMPLETE 并把退出码置 1，「什么都没跑」永远算不成通过。
+  `test:cases` 的整条判定抽成纯函数，退出码口径本身也进了用例（TEST-005，含两次
+  变异验证：弄坏判定或弄坏汇总都必须变红）。运行时代码没有改动。
+
+### 变更
+
+- **dsh peer 上界从 `<0.3.0-0` 放宽到 `<1.0.0-0`**（下界 `>=0.1.0-rc.6` 不动）。上界只挡
+  大版本：内核跨 0.x 小版本时，契约全绿的插件不必为改一行声明重发一版；真正的守门人是
+  真实宿主契约门禁，版本号本来就预测不了兼容性。HOST-021 与 HOST-004 的拒收对照版本
+  同步改成 `1.0.0-rc.1`，并把 `0.3.0-rc.1` 移进「按声明应当放行」那一侧。
+
 ## [0.2.3] - 2026-10-22
 
 ### 修复
@@ -78,5 +99,6 @@
 
 - 搜索引擎的选择仍由插件在引擎不可用时自动回退，不依赖用户在设置界面切换。
 
+[0.2.4]: https://github.com/sobermh/tokens_DshWebSearch_code/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/sobermh/tokens_DshWebSearch_code/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/sobermh/tokens_DshWebSearch_code/compare/v0.2.1...v0.2.2
